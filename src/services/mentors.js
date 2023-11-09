@@ -4,6 +4,7 @@ const userRequests = require('@requests/user')
 const common = require('@constants/common')
 const httpStatusCode = require('@generics/http-status')
 const mentorQueries = require('@database/queries/mentorExtension')
+const userExtension = require('@database/queries/userExtension')
 const { UniqueConstraintError } = require('sequelize')
 const _ = require('lodash')
 const sessionAttendeesQueries = require('@database/queries/sessionAttendees')
@@ -442,6 +443,48 @@ module.exports = class MentorsHelper {
 					...processDbResponse,
 				},
 			})
+		} catch (error) {
+			console.error(error)
+			return error
+		}
+	}
+	/**
+	 * Profile deactivate.
+	 * @method
+	 * @name deactivate
+	 * @param {String} userId - user id.
+	 * @returns {JSON} - profile details
+	 */
+	static async deactivate(id) {
+		try {
+			// get the user details from db
+			const mentor = await userExtension.getUsersByUserIds(id)
+
+			// check the current status of the user
+			if (mentor[0].status == common.activeStatus) {
+				let update = {
+					status: common.inactiveStatus,
+				}
+				// update the user with new status
+				let updateResponse = await userExtension.updateMenteeExtension(id, update)
+				// check the update response
+				if (updateResponse) {
+					return common.successResponse({
+						statusCode: httpStatusCode.ok,
+						message: 'USER_EXTENSION_UPDATED',
+					})
+				} else {
+					return common.failureResponse({
+						statusCode: httpStatusCode.internal_server_error,
+						message: 'USER_EXTENSION_UPDATE_FAILED',
+					})
+				}
+			} else {
+				return common.failureResponse({
+					statusCode: httpStatusCode.not_found,
+					message: 'USER_EXTENSION_NOT_FOUND',
+				})
+			}
 		} catch (error) {
 			console.error(error)
 			return error

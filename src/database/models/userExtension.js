@@ -17,6 +17,10 @@ module.exports = (sequelize, DataTypes) => {
 			education_qualification: {
 				type: DataTypes.STRING,
 			},
+			status: {
+				type: DataTypes.STRING,
+				defaultValue: 'ACTIVE',
+			},
 			rating: {
 				type: DataTypes.JSON,
 			},

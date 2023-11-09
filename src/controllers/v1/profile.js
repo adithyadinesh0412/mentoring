@@ -96,6 +96,21 @@ module.exports = class Mentees {
 			return error
 		}
 	}
+	/**
+	 * Deactivate mentee extension status by user ID.
+	 * @method
+	 * @name deactivate
+	 * @param {Object} req - Request data.
+	 * @param {String} req.params.id - User ID of the user.
+	 * @returns {Promise<Object>} - user extension details.
+	 */
+	async deactivate(req) {
+		try {
+			return await mentorsService.deactivate(req.decodedToken.id, req.decodedToken.organization_id)
+		} catch (error) {
+			return error
+		}
+	}
 
 	//To be enabled when delete flow is needed.
 	// /**

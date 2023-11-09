@@ -111,4 +111,6 @@ module.exports = {
 		'mentoring_session_fifteen_min_',
 	],
 	ORG_ADMIN_ROLE: 'org_admin',
+	activeStatus: 'ACTIVE',
+	inactiveStatus: 'INACTIVE',
 }
