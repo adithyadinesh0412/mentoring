@@ -9,6 +9,7 @@ const adminService = require('./admin')
 const OrganisationExtensionQueries = require('@database/queries/organisationExtension')
 const entityTypeQueries = require('@database/queries/entityType')
 const userRequests = require('@requests/user')
+const utils = require('@generics/utils')
 
 module.exports = class OrgAdminService {
 	/**
@@ -21,11 +22,14 @@ module.exports = class OrgAdminService {
 
 	static async roleChange(bodyData) {
 		try {
-			if (bodyData.current_roles[0] === common.MENTOR_ROLE && bodyData.new_roles[0] === common.MENTEE_ROLE) {
+			if (
+				utils.validateRoleAccess(bodyData.current_roles, common.MENTOR_ROLE) &&
+				utils.validateRoleAccess(bodyData.new_roles, common.MENTEE_ROLE)
+			) {
 				return await this.changeRoleToMentee(bodyData)
 			} else if (
-				bodyData.current_roles[0] === common.MENTEE_ROLE &&
-				bodyData.new_roles[0] === common.MENTOR_ROLE
+				utils.validateRoleAccess(bodyData.current_roles, common.MENTEE_ROLE) &&
+				utils.validateRoleAccess(bodyData.new_roles, common.MENTOR_ROLE)
 			) {
 				return await this.changeRoleToMentor(bodyData)
 			}
@@ -54,6 +58,10 @@ module.exports = class OrgAdminService {
 					statusCode: httpStatusCode.bad_request,
 					responseCode: 'CLIENT_ERROR',
 				})
+			}
+
+			if (bodyData.org_id) {
+				mentorDetails.org_id = bodyData.org_id
 			}
 
 			// Add fetched mentor details to user_extension table
@@ -109,6 +117,10 @@ module.exports = class OrgAdminService {
 				})
 			}
 
+			if (bodyData.org_id) {
+				menteeDetails.org_id = bodyData.org_id
+			}
+
 			// Add fetched mentee details to mentor_extension table
 			const mentorCreationData = await mentorQueries.createMentorExtension(menteeDetails)
 			if (!mentorCreationData) {
@@ -149,7 +161,40 @@ module.exports = class OrgAdminService {
 				org_id: decodedToken.organization_id,
 				...policies,
 			})
-			console.log(orgPolicies)
+			const orgPolicyUpdated =
+				new Date(orgPolicies.dataValues.created_at).getTime() !==
+				new Date(orgPolicies.dataValues.updated_at).getTime()
+
+			// If org policies updated update mentor and mentee extensions uunder the org
+			if (orgPolicyUpdated) {
+				// if org policy is updated update mentor extension and user extension
+				let policyData = await this.constructOrgPolicyObject(orgPolicies.dataValues)
+
+				await mentorQueries.updateMentorExtension(
+					'', //userId not required
+					policyData, // data to update
+					{}, //options
+					{ org_id: decodedToken.organization_id } //custom filter for where clause
+				)
+
+				await menteeQueries.updateMenteeExtension(
+					'', //userId not required
+					policyData, // data to update
+					{}, //options
+					{ org_id: decodedToken.organization_id } //custom filter for where clause
+				)
+				// comenting as part of first level SAAS changes. will need this in the code next level
+				// await sessionQueries.updateSession(
+				// 	{
+				// 		status: common.PUBLISHED_STATUS,
+				// 		mentor_org_id: decodedToken.organization_id
+				// 	},
+				// 	{
+				// 		visibility: orgPolicies.dataValues.session_visibility_policy
+				// 	}
+				// )
+			}
+
 			delete orgPolicies.dataValues.deleted_at
 			return common.successResponse({
 				statusCode: httpStatusCode.ok,
@@ -264,5 +309,33 @@ module.exports = class OrgAdminService {
 			console.log(error)
 			throw error
 		}
+	}
+
+	/**
+	 * @description 							- constuct organisation policy object for mentor_extension/user_extension.
+	 * @method
+	 * @name 									- constructOrgPolicyObject
+	 * @param {Object} organisationPolicy 		- organisation policy data
+	 * @param {Boolean} addOrgId 				- Boolean that specifies if org_id needs to be added or not
+	 * @returns {Object} 						- A object that reurn a response object.
+	 */
+	static async constructOrgPolicyObject(organisationPolicy, addOrgId = false) {
+		const {
+			mentor_visibility_policy,
+			external_session_visibility_policy,
+			external_mentor_visibility_policy,
+			org_id,
+		} = organisationPolicy
+		// create policy object
+		let policyData = {
+			visibility: mentor_visibility_policy,
+			external_session_visibility: external_session_visibility_policy,
+			external_mentor_visibility: external_mentor_visibility_policy,
+		}
+		// add org_id value if requested
+		if (addOrgId) {
+			policyData.org_id = org_id
+		}
+		return policyData
 	}
 }
