@@ -23,9 +23,6 @@ module.exports = {
 			meta: {
 				type: Sequelize.JSONB,
 			},
-			status: {
-				type: Sequelize.STRING,
-			},
 			stats: {
 				type: Sequelize.JSONB,
 			},
