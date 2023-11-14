@@ -11,9 +11,6 @@ module.exports = {
 	},
 
 	async down(queryInterface, Sequelize) {
-		await queryInterface.changeColumn('user_extensions', 'status', {
-			type: Sequelize.STRING,
-			allowNull: true,
-		})
+		await queryInterface.removeColumn('user_extensions', 'status')
 	},
 }
