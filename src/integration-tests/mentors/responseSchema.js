@@ -10,28 +10,26 @@ const reportsSchema = {
 		result: {
 			type: 'object',
 			properties: {
-				totalSessionCreated: {
+				total_session_created: {
 					type: 'integer',
 				},
-				totalsessionHosted: {
+				total_session_hosted: {
 					type: 'integer',
 				},
 			},
-			required: ['totalSessionCreated', 'totalsessionHosted'],
+			required: ['total_session_created', 'total_session_hosted'],
 		},
 		meta: {
 			type: 'object',
 			properties: {
-				formsVersion: {
-					type: 'array',
-					items: [
-						{
-							type: 'object',
-						},
-					],
+				correlation: {
+					type: 'string',
+				},
+				meetingPlatform: {
+					type: 'string',
 				},
 			},
-			required: ['formsVersion'],
+			required: ['correlation', 'meetingPlatform'],
 		},
 	},
 	required: ['responseCode', 'message', 'result', 'meta'],
@@ -48,100 +46,217 @@ const profileSchema = {
 		result: {
 			type: 'object',
 			properties: {
-				sessionsAttended: {
+				sessions_attended: {
 					type: 'integer',
 				},
-				sessionsHosted: {
+				sessions_hosted: {
 					type: 'integer',
 				},
-				_id: {
-					type: 'string',
+				id: {
+					type: 'integer',
 				},
 				email: {
-					type: 'object',
-					properties: {
-						address: {
-							type: 'string',
-						},
-						verified: {
-							type: 'boolean',
-						},
-					},
-					required: ['address', 'verified'],
+					type: 'string',
+				},
+				email_verified: {
+					type: 'string',
 				},
 				name: {
 					type: 'string',
 				},
-				isAMentor: {
-					type: 'boolean',
-				},
-				hasAcceptedTAndC: {
-					type: 'boolean',
-				},
-				deleted: {
-					type: 'boolean',
-				},
-				educationQualification: {
+				gender: {
 					type: 'null',
+				},
+				location: {
+					type: 'null',
+				},
+				about: {
+					type: 'null',
+				},
+				share_link: {
+					type: 'null',
+				},
+				status: {
+					type: 'string',
+				},
+				status_updated_at: {
+					type: 'null',
+				},
+				image: {
+					type: 'null',
+				},
+				last_logged_in_at: {
+					type: 'string',
+				},
+				has_accepted_terms_and_conditions: {
+					type: 'boolean',
+				},
+				languages: {
+					type: 'null',
+				},
+				preferred_language: {
+					type: 'string',
+				},
+				organization_id: {
+					type: 'integer',
+				},
+				roles: {
+					type: 'array',
+					items: [
+						{
+							type: 'integer',
+						},
+					],
+				},
+				meta: {
+					type: 'null',
+				},
+				deleted_at: {
+					type: 'null',
+				},
+				user_roles: {
+					type: 'array',
+					items: [
+						{
+							type: 'object',
+							properties: {
+								id: {
+									type: 'integer',
+								},
+								title: {
+									type: 'string',
+								},
+								user_type: {
+									type: 'integer',
+								},
+								status: {
+									type: 'string',
+								},
+							},
+							required: ['id', 'title', 'user_type', 'status'],
+						},
+					],
 				},
 				designation: {
 					type: 'array',
-					items: {},
+					items: [
+						{
+							type: 'string',
+						},
+						{
+							type: 'string',
+						},
+						{
+							type: 'string',
+						},
+					],
 				},
-				location: {
+				area_of_expertise: {
 					type: 'array',
-					items: {},
+					items: [
+						{
+							type: 'string',
+						},
+						{
+							type: 'string',
+						},
+					],
 				},
-				areasOfExpertise: {
-					type: 'array',
-					items: {},
-				},
-				languages: {
-					type: 'array',
-					items: {},
-				},
-				updatedAt: {
+				education_qualification: {
 					type: 'string',
 				},
-				createdAt: {
+				rating: {
+					type: 'null',
+				},
+				stats: {
+					type: 'null',
+				},
+				tags: {
+					type: 'array',
+					items: [
+						{
+							type: 'string',
+						},
+						{
+							type: 'string',
+						},
+					],
+				},
+				configs: {
+					type: 'null',
+				},
+				visibility: {
 					type: 'string',
 				},
-				lastLoggedInAt: {
+				external_session_visibility: {
+					type: 'string',
+				},
+				external_mentor_visibility: {
+					type: 'string',
+				},
+				experience: {
+					type: 'null',
+				},
+				org_id: {
+					type: 'integer',
+				},
+				created_at: {
+					type: 'string',
+				},
+				updated_at: {
 					type: 'string',
 				},
 			},
 			required: [
-				'sessionsAttended',
-				'sessionsHosted',
-				'_id',
+				'sessions_attended',
+				'sessions_hosted',
+				'id',
 				'email',
+				'email_verified',
 				'name',
-				'isAMentor',
-				'hasAcceptedTAndC',
-				'deleted',
-				'educationQualification',
-				'designation',
+				'gender',
 				'location',
-				'areasOfExpertise',
+				'about',
+				'share_link',
+				'status',
+				'status_updated_at',
+				'image',
+				'last_logged_in_at',
+				'has_accepted_terms_and_conditions',
 				'languages',
-				'updatedAt',
-				'createdAt',
-				'lastLoggedInAt',
+				'preferred_language',
+				'organization_id',
+				'roles',
+				'meta',
+				'deleted_at',
+				'user_roles',
+				'designation',
+				'area_of_expertise',
+				'education_qualification',
+				'rating',
+				'stats',
+				'tags',
+				'configs',
+				'visibility',
+				'external_session_visibility',
+				'external_mentor_visibility',
+				'experience',
+				'org_id',
+				'created_at',
+				'updated_at',
 			],
 		},
 		meta: {
 			type: 'object',
 			properties: {
-				formsVersion: {
-					type: 'array',
-					items: [
-						{
-							type: 'object',
-						},
-					],
+				correlation: {
+					type: 'string',
+				},
+				meetingPlatform: {
+					type: 'string',
 				},
 			},
-			required: ['formsVersion'],
+			required: ['correlation', 'meetingPlatform'],
 		},
 	},
 	required: ['responseCode', 'message', 'result', 'meta'],
@@ -156,33 +271,29 @@ const upcomingSessionsSchema = {
 			type: 'string',
 		},
 		result: {
-			type: 'array',
-			items: [
-				{
-					type: 'object',
-					properties: {
-						data: {
-							type: 'array',
-							items: {},
-						},
-					},
-					required: ['data'],
+			type: 'object',
+			properties: {
+				data: {
+					type: 'array',
+					items: {},
 				},
-			],
+				count: {
+					type: 'integer',
+				},
+			},
+			required: ['data', 'count'],
 		},
 		meta: {
 			type: 'object',
 			properties: {
-				formsVersion: {
-					type: 'array',
-					items: [
-						{
-							type: 'object',
-						},
-					],
+				correlation: {
+					type: 'string',
+				},
+				meetingPlatform: {
+					type: 'string',
 				},
 			},
-			required: ['formsVersion'],
+			required: ['correlation', 'meetingPlatform'],
 		},
 	},
 	required: ['responseCode', 'message', 'result', 'meta'],
@@ -208,24 +319,152 @@ const shareSchema = {
 		meta: {
 			type: 'object',
 			properties: {
-				formsVersion: {
-					type: 'array',
-					items: [
-						{
-							type: 'object',
-						},
-					],
+				correlation: {
+					type: 'string',
+				},
+				meetingPlatform: {
+					type: 'string',
 				},
 			},
-			required: ['formsVersion'],
+			required: ['correlation', 'meetingPlatform'],
 		},
 	},
 	required: ['responseCode', 'message', 'result', 'meta'],
 }
-
+const createUser = {
+	type: 'object',
+	properties: {
+		responseCode: {
+			type: 'string',
+		},
+		message: {
+			type: 'string',
+		},
+		result: {
+			type: 'object',
+			properties: {
+				designation: {
+					type: 'array',
+					items: [
+						{
+							type: 'string',
+						},
+						{
+							type: 'string',
+						},
+						{
+							type: 'string',
+						},
+					],
+				},
+				area_of_expertise: {
+					type: 'array',
+					items: [
+						{
+							type: 'string',
+						},
+						{
+							type: 'string',
+						},
+					],
+				},
+				education_qualification: {
+					type: 'string',
+				},
+				tags: {
+					type: 'array',
+					items: [
+						{
+							type: 'string',
+						},
+						{
+							type: 'string',
+						},
+					],
+				},
+				visibility: {
+					type: 'string',
+				},
+				user_id: {
+					type: 'integer',
+				},
+				external_session_visibility: {
+					type: 'string',
+				},
+				external_mentor_visibility: {
+					type: 'string',
+				},
+				org_id: {
+					type: 'integer',
+				},
+				visible_to_organizations: {
+					type: 'null',
+				},
+				updated_at: {
+					type: 'string',
+				},
+				created_at: {
+					type: 'string',
+				},
+				rating: {
+					type: 'null',
+				},
+				meta: {
+					type: 'null',
+				},
+				stats: {
+					type: 'null',
+				},
+				configs: {
+					type: 'null',
+				},
+				experience: {
+					type: 'null',
+				},
+				deleted_at: {
+					type: 'null',
+				},
+			},
+			required: [
+				'designation',
+				'area_of_expertise',
+				'education_qualification',
+				'tags',
+				'visibility',
+				'user_id',
+				'external_session_visibility',
+				'external_mentor_visibility',
+				'org_id',
+				'visible_to_organizations',
+				'updated_at',
+				'created_at',
+				'rating',
+				'meta',
+				'stats',
+				'configs',
+				'experience',
+				'deleted_at',
+			],
+		},
+		meta: {
+			type: 'object',
+			properties: {
+				correlation: {
+					type: 'string',
+				},
+				meetingPlatform: {
+					type: 'string',
+				},
+			},
+			required: ['correlation', 'meetingPlatform'],
+		},
+	},
+	required: ['responseCode', 'message', 'result', 'meta'],
+}
 module.exports = {
 	reportsSchema,
 	profileSchema,
 	upcomingSessionsSchema,
 	shareSchema,
+	createUser,
 }

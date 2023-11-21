@@ -7,7 +7,7 @@ let baseURL = 'http://localhost:3000'
 let defaultHeaders
 const logIn = async () => {
 	try {
-		let request = defaults(supertest('http://localhost:3001'))
+		let request = defaults(supertest('http://localhost:3005'))
 		let waitOn = require('wait-on')
 		let opts = {
 			resources: [baseURL],
@@ -16,21 +16,20 @@ const logIn = async () => {
 			timeout: 30000,
 		}
 		await waitOn(opts)
-		let email = 'nevil' + crypto.randomBytes(5).toString('hex') + '@tunerlabs.com'
+		let email = 'adithya.' + crypto.randomBytes(5).toString('hex') + '@pacewisdom.com'
 		let password = faker.internet.password()
 		let res = await request.post('/user/v1/account/create').send({
-			name: 'Nevil',
+			name: 'adithya',
 			email: email,
 			password: password,
-			isAMentor: false,
+			role: 'mentee',
 		})
 		res = await request.post('/user/v1/account/login').send({
 			email: email,
 			password: password,
 		})
-		//console.log(res.body)
 
-		if (res.body.result.access_token && res.body.result.user._id) {
+		if (res.body.result.access_token && res.body.result.user.id) {
 			defaultHeaders = {
 				'X-auth-token': 'bearer ' + res.body.result.access_token,
 				Connection: 'keep-alive',
@@ -38,7 +37,7 @@ const logIn = async () => {
 			}
 			global.request = defaults(supertest(baseURL))
 			global.request.set(defaultHeaders)
-			global.userId = res.body.result.user._id
+			global.userId = res.body.result.user.id
 			/* .end(function (err, res) {
 				let successCodes = [200, 201, 202]
 				if (!successCodes.includes(res.statusCode)) {
@@ -49,7 +48,7 @@ const logIn = async () => {
 			return {
 				token: res.body.result.access_token,
 				refreshToken: res.body.result.refresh_token,
-				userId: res.body.result.user._id,
+				userId: res.body.result.user.id,
 				email: email,
 				password: password,
 			}
@@ -63,7 +62,7 @@ const logIn = async () => {
 }
 const mentorLogIn = async () => {
 	try {
-		let request = defaults(supertest('http://localhost:3001'))
+		let request = defaults(supertest('http://localhost:3005'))
 		var waitOn = require('wait-on')
 		var opts = {
 			resources: [baseURL],
@@ -72,21 +71,21 @@ const mentorLogIn = async () => {
 			timeout: 30000,
 		}
 		await waitOn(opts)
-		let email = 'nevil' + crypto.randomBytes(5).toString('hex') + '@tunerlabs.com'
+		let email = 'adithya.' + crypto.randomBytes(5).toString('hex') + '@pacewisdom.com'
 		let password = faker.internet.password()
 		let res = await request.post('/user/v1/account/create').send({
-			name: 'Nevil',
+			name: 'adithya',
 			email: email,
 			password: password,
-			isAMentor: true,
-			secretCode: 'secret-code',
+			role: 'mentor',
+			secretCode: 4567,
 		})
 		res = await request.post('/user/v1/account/login').send({
 			email: email,
 			password: password,
 		})
 
-		if (res.body.result.access_token && res.body.result.user._id) {
+		if (res.body.result.access_token && res.body.result.user.id) {
 			defaultHeaders = {
 				'X-auth-token': 'bearer ' + res.body.result.access_token,
 				Connection: 'keep-alive',
@@ -99,11 +98,11 @@ const mentorLogIn = async () => {
 					console.log('Response Body', res.body)
 				}
 			}) */
-			global.userId = res.body.result.user._id
+			global.userId = res.body.result.user.id
 			return {
 				token: res.body.result.access_token,
 				refreshToken: res.body.result.refresh_token,
-				userId: res.body.result.user._id,
+				userId: res.body.result.user.id,
 				email: email,
 				password: password,
 			}
