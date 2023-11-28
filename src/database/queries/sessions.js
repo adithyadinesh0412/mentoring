@@ -1,10 +1,12 @@
 const Session = require('@database/models/index').Session
-const { Op, literal } = require('sequelize')
+const { Op, literal, QueryTypes } = require('sequelize')
 const common = require('@constants/common')
 const sequelize = require('sequelize')
 
 const moment = require('moment')
 const SessionOwnership = require('../models/index').SessionOwnership
+const Sequelize = require('@database/models/index').sequelize
+
 exports.getColumns = async () => {
 	try {
 		return await Object.keys(Session.rawAttributes)
@@ -12,6 +14,15 @@ exports.getColumns = async () => {
 		return error
 	}
 }
+
+exports.getModelName = async () => {
+	try {
+		return await Session.name
+	} catch (error) {
+		return error
+	}
+}
+
 exports.create = async (data) => {
 	try {
 		return await Session.create(data)
@@ -43,13 +54,15 @@ exports.findById = async (id) => {
 
 exports.updateOne = async (filter, update, options = {}) => {
 	try {
-		const [rowsAffected] = await Session.update(update, {
+		const result = await Session.update(update, {
 			where: filter,
 			...options,
-			individualHooks: true, // Pass 'individualHooks: true' option to ensure proper triggering of 'beforeUpdate' hook.
+			individualHooks: true,
 		})
 
-		return rowsAffected
+		const [rowsAffected, updatedRows] = result
+
+		return options.returning ? { rowsAffected, updatedRows } : rowsAffected
 	} catch (error) {
 		return error
 	}
@@ -223,7 +236,7 @@ exports.removeAndReturnMentorSessions = async (userId) => {
 				},
 			}
 		)
-		const removedSessions = updatedSessions[0] === sessionIds.length ? sessionIdAndTitle : []
+		const removedSessions = updatedSessions[0] > 0 ? sessionIdAndTitle : []
 		return removedSessions
 	} catch (error) {
 		return error
@@ -249,7 +262,7 @@ exports.findAllSessions = async (page, limit, search, filters) => {
 			],
 			offset: parseInt((page - 1) * limit, 10),
 			limit: parseInt(limit, 10),
-			order: [['title', 'ASC']],
+			order: [['created_at', 'DESC']],
 		}
 
 		if (search) {
@@ -273,6 +286,9 @@ exports.getAllUpcomingSessions = async (paranoid) => {
 			where: {
 				start_date: {
 					[Op.gt]: currentEpochTime,
+				},
+				status: {
+					[Op.not]: common.INACTIVE_STATUS,
 				},
 			},
 			raw: true,
@@ -491,7 +507,8 @@ exports.getUpcomingSessions = async (page, limit, search, userId) => {
 					[Op.in]: ['PUBLISHED', 'LIVE'],
 				},
 			},
-			order: [['created_at', 'DESC']],
+			// order: [['created_at', 'DESC']],
+			order: [['start_date', 'ASC']],
 			attributes: [
 				'id',
 				'title',
@@ -504,7 +521,7 @@ exports.getUpcomingSessions = async (page, limit, search, userId) => {
 				'created_at',
 				'meeting_info',
 				'visibility',
-				'mentor_org_id',
+				'mentor_organization_id',
 				/* ['meetingInfo.platform', 'meetingInfo.platform'],
 				['meetingInfo.value', 'meetingInfo.value'], */
 			],
@@ -513,10 +530,6 @@ exports.getUpcomingSessions = async (page, limit, search, userId) => {
 			raw: true,
 		})
 		return sessionData
-		return {
-			data: sessionData.rows,
-			count: sessionData.count,
-		}
 	} catch (error) {
 		console.error(error)
 		return error
@@ -547,6 +560,216 @@ exports.mentorsSessionWithPendingFeedback = async (mentorId, options = {}, compl
 			...options,
 			raw: true,
 		})
+	} catch (error) {
+		return error
+	}
+}
+
+exports.getUpcomingSessionsFromView = async (
+	page,
+	limit,
+	search,
+	userId,
+	filter,
+	saasFilter = '',
+	additionalProjectionclause = ''
+) => {
+	try {
+		const currentEpochTime = Math.floor(Date.now() / 1000)
+		let filterConditions = []
+
+		if (filter && typeof filter === 'object') {
+			for (const key in filter) {
+				if (Array.isArray(filter[key])) {
+					filterConditions.push(`"${key}" @> ARRAY[:${key}]::character varying[]`)
+				}
+			}
+		}
+		const filterClause = filterConditions.length > 0 ? `AND ${filterConditions.join(' AND ')}` : ''
+
+		const saasFilterClause = saasFilter != '' ? saasFilter : ''
+		// Create selection clause
+		let projectionClause = `
+			id, title, description, start_date, end_date, meta, recommended_for, medium, categories, status, image, mentor_id, visibility, mentor_organization_id, created_at,
+			(meeting_info - 'link' ) AS meeting_info
+		`
+		if (additionalProjectionclause !== '') {
+			projectionClause += `,${additionalProjectionclause}`
+		}
+
+		const query = `
+		SELECT ${projectionClause}
+		FROM
+				m_${Session.tableName}
+		WHERE
+			title ILIKE :search
+			AND mentor_id != :userId
+			AND end_date > :currentEpochTime
+			AND status IN ('PUBLISHED', 'LIVE')
+			${filterClause}
+			${saasFilterClause}
+		OFFSET
+			:offset
+		LIMIT
+			:limit;
+	`
+
+		const replacements = {
+			search: `%${search}%`,
+			userId: userId,
+			currentEpochTime: currentEpochTime,
+			offset: limit * (page - 1),
+			limit: limit,
+		}
+
+		if (filter && typeof filter === 'object') {
+			for (const key in filter) {
+				if (Array.isArray(filter[key])) {
+					replacements[key] = filter[key]
+				}
+			}
+		}
+
+		const sessionIds = await Sequelize.query(query, {
+			type: QueryTypes.SELECT,
+			replacements: replacements,
+		})
+
+		return {
+			rows: sessionIds,
+			count: sessionIds.length,
+		}
+	} catch (error) {
+		console.error(error)
+		throw error
+	}
+}
+
+exports.findAllByIds = async (ids) => {
+	try {
+		return await Session.findAll({
+			where: {
+				id: ids,
+			},
+			raw: true,
+			order: [['created_at', 'DESC']],
+		})
+	} catch (error) {
+		return error
+	}
+}
+
+exports.getMentorsUpcomingSessionsFromView = async (page, limit, search, mentorId, filter, saasFilter = '') => {
+	try {
+		const currentEpochTime = Math.floor(Date.now() / 1000)
+
+		const filterConditions = []
+
+		if (filter && typeof filter === 'object') {
+			for (const key in filter) {
+				if (Array.isArray(filter[key])) {
+					filterConditions.push(`"${key}" @> ARRAY[:${key}]::character varying[]`)
+				}
+			}
+		}
+		const filterClause = filterConditions.length > 0 ? `AND ${filterConditions.join(' AND ')}` : ''
+
+		const saasFilterClause = saasFilter != '' ? saasFilter : ''
+
+		const query = `
+		SELECT
+			id,
+			title,
+			description,
+			start_date,
+			end_date,
+			status,
+			image,
+			mentor_id,
+			meeting_info,
+			visibility,
+			mentor_organization_id
+		FROM
+				${common.materializedViewsPrefix + Session.tableName}
+		WHERE
+			mentor_id = :mentorId
+			AND status = 'PUBLISHED'
+			AND start_date > :currentEpochTime
+			AND started_at IS NULL
+			AND (
+				LOWER(title) LIKE :search
+			)
+			${filterClause}
+			${saasFilterClause}
+		ORDER BY
+			start_date ASC
+		OFFSET
+			:offset
+		LIMIT
+			:limit;
+	`
+
+		const replacements = {
+			mentorId: mentorId,
+			currentEpochTime: currentEpochTime,
+			search: `%${search.toLowerCase()}%`,
+			offset: limit * (page - 1),
+			limit: limit,
+			...filter, // Add filter parameters to replacements
+		}
+
+		const sessionAttendeesData = await Sequelize.query(query, {
+			type: QueryTypes.SELECT,
+			replacements: replacements,
+		})
+
+		return {
+			data: sessionAttendeesData,
+			count: sessionAttendeesData.length,
+		}
+	} catch (error) {
+		return error
+	}
+}
+
+exports.deactivateAndReturnMentorSessions = async (userId) => {
+	try {
+		const currentEpochTime = moment().unix()
+		const currentDateTime = moment().format('YYYY-MM-DD HH:mm:ssZ')
+
+		const foundSessionOwnerships = await SessionOwnership.findAll({
+			attributes: ['session_id'],
+			where: {
+				mentor_id: userId,
+			},
+			raw: true,
+		})
+		const sessionIds = foundSessionOwnerships.map((ownership) => ownership.session_id)
+		const foundSessions = await Session.findAll({
+			where: {
+				id: { [Op.in]: sessionIds },
+				[Op.or]: [{ start_date: { [Op.gt]: currentEpochTime } }, { status: common.PUBLISHED_STATUS }],
+			},
+			raw: true,
+		})
+
+		const sessionIdAndTitle = foundSessions.map((session) => {
+			return { id: session.id, title: session.title }
+		})
+		const upcomingSessionIds = foundSessions.map((session) => session.id)
+
+		const updatedSessions = await Session.update(
+			{
+				status: common.INACTIVE_STATUS,
+			},
+			{
+				where: {
+					id: { [Op.in]: upcomingSessionIds },
+				},
+			}
+		)
+		const removedSessions = updatedSessions[0] > 0 ? sessionIdAndTitle : []
+		return removedSessions
 	} catch (error) {
 		return error
 	}

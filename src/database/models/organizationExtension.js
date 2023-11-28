@@ -1,10 +1,10 @@
 'use strict'
 const { Model } = require('sequelize')
 module.exports = (sequelize, DataTypes) => {
-	const OrganisationExtension = sequelize.define(
-		'OrganisationExtension',
+	const OrganizationExtension = sequelize.define(
+		'OrganizationExtension',
 		{
-			org_id: {
+			organization_id: {
 				allowNull: false,
 				primaryKey: true,
 				type: DataTypes.INTEGER,
@@ -15,15 +15,23 @@ module.exports = (sequelize, DataTypes) => {
 			external_mentor_visibility_policy: { type: DataTypes.STRING },
 			approval_required_for: { type: DataTypes.ARRAY(DataTypes.STRING) },
 			allow_mentor_override: DataTypes.BOOLEAN,
+			created_by: {
+				allowNull: true,
+				type: DataTypes.INTEGER,
+			},
+			updated_by: {
+				allowNull: true,
+				type: DataTypes.INTEGER,
+			},
 		},
 		{
 			sequelize,
-			modelName: 'OrganisationExtension',
-			tableName: 'organisation_extension',
+			modelName: 'OrganizationExtension',
+			tableName: 'organization_extension',
 			freezeTableName: true,
 			paranoid: true,
 		}
 	)
 
-	return OrganisationExtension
+	return OrganizationExtension
 }

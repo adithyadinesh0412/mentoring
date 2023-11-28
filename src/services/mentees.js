@@ -20,6 +20,7 @@ const mentorQueries = require('@database/queries/mentorExtension')
 const { getDefaultOrgId } = require('@helpers/getDefaultOrgId')
 const { Op } = require('sequelize')
 const { removeDefaultOrgEntityTypes } = require('@generics/utils')
+const entityTypeService = require('@services/entity-type')
 
 module.exports = class MenteesHelper {
 	/**
@@ -45,7 +46,7 @@ module.exports = class MenteesHelper {
 
 		let entityTypes = await entityTypeQueries.findUserEntityTypesAndEntities({
 			status: 'ACTIVE',
-			org_id: {
+			organization_id: {
 				[Op.in]: [orgId, defaultOrgId],
 			},
 		})
@@ -75,21 +76,15 @@ module.exports = class MenteesHelper {
 	 * @returns {JSON} - List of sessions
 	 */
 
-	static async sessions(userId, enrolledSessions, page, limit, search = '', isAMentor) {
+	static async sessions(userId, page, limit, search = '') {
 		try {
-			let sessions = []
-
-			if (!enrolledSessions) {
-				/** Upcoming unenrolled sessions {All sessions}*/
-				sessions = await this.getAllSessions(page, limit, search, userId, isAMentor)
-			} else {
-				/** Upcoming user's enrolled sessions {My sessions}*/
-				/* Fetch sessions if it is not expired or if expired then either status is live or if mentor 
+			/** Upcoming user's enrolled sessions {My sessions}*/
+			/* Fetch sessions if it is not expired or if expired then either status is live or if mentor 
                 delays in starting session then status will remain published for that particular interval so fetch that also */
 
-				/* TODO: Need to write cron job that will change the status of expired sessions from published to cancelled if not hosted by mentor */
-				sessions = await this.getMySessions(page, limit, search, userId, isAMentor)
-			}
+			/* TODO: Need to write cron job that will change the status of expired sessions from published to cancelled if not hosted by mentor */
+			const sessions = await this.getMySessions(page, limit, search, userId)
+
 			return common.successResponse({
 				statusCode: httpStatusCode.ok,
 				message: 'SESSION_FETCHED_SUCCESSFULLY',
@@ -163,15 +158,15 @@ module.exports = class MenteesHelper {
 	 * @returns {JSON} - Mentees homeFeed.
 	 */
 
-	static async homeFeed(userId, isAMentor, page, limit, search) {
+	static async homeFeed(userId, isAMentor, page, limit, search, queryParams) {
 		try {
 			/* All Sessions */
 
-			let allSessions = await this.getAllSessions(page, limit, search, userId, isAMentor)
+			let allSessions = await this.getAllSessions(page, limit, search, userId, queryParams, isAMentor)
 
 			/* My Sessions */
 
-			let mySessions = await this.getMySessions(page, limit, search, userId, isAMentor)
+			let mySessions = await this.getMySessions(page, limit, search, userId)
 
 			const result = {
 				all_sessions: allSessions.rows,
@@ -315,13 +310,45 @@ module.exports = class MenteesHelper {
 	 * @returns {JSON} - List of all sessions
 	 */
 
-	static async getAllSessions(page, limit, search, userId, isAMentor) {
-		const sessions = await sessionQueries.getUpcomingSessions(page, limit, search, userId)
+	static async getAllSessions(page, limit, search, userId, queryParams, isAMentor) {
+		let additionalProjectionString = ''
+
+		// check for fields query
+		if (queryParams.fields && queryParams.fields !== '') {
+			additionalProjectionString = queryParams.fields
+			delete queryParams.fields
+		}
+		let query = utils.processQueryParametersWithExclusions(queryParams)
+
+		let validationData = await entityTypeQueries.findAllEntityTypesAndEntities({
+			status: 'ACTIVE',
+		})
+
+		let filteredQuery = utils.validateFilters(query, JSON.parse(JSON.stringify(validationData)), 'MentorExtension')
+
+		// Create saas fiter for view query
+		const saasFilter = await this.filterSessionsBasedOnSaasPolicy(userId, isAMentor)
+
+		const sessions = await sessionQueries.getUpcomingSessionsFromView(
+			page,
+			limit,
+			search,
+			userId,
+			filteredQuery,
+			saasFilter,
+			additionalProjectionString
+		)
+		if (sessions.rows.length > 0) {
+			const uniqueOrgIds = [...new Set(sessions.rows.map((obj) => obj.mentor_organization_id))]
+			sessions.rows = await entityTypeService.processEntityTypesToAddValueLabels(
+				sessions.rows,
+				uniqueOrgIds,
+				common.sessionModelName,
+				'mentor_organization_id'
+			)
+		}
 
 		sessions.rows = await this.menteeSessionDetails(sessions.rows, userId)
-
-		// Filter sessions based on saas policy {session contain enrolled + upcoming session}
-		sessions.rows = await this.filterSessionsBasedOnSaasPolicy(sessions.rows, userId, isAMentor)
 
 		sessions.rows = await this.sessionMentorDetails(sessions.rows)
 
@@ -332,71 +359,50 @@ module.exports = class MenteesHelper {
 	 * @description 							- filter sessions based on user's saas policy.
 	 * @method
 	 * @name filterSessionsBasedOnSaasPolicy
-	 * @param {Array} sessions 					- Session data.
 	 * @param {Number} userId 					- User id.
 	 * @param {Boolean} isAMentor 				- user mentor or not.
 	 * @returns {JSON} 							- List of filtered sessions
 	 */
-	static async filterSessionsBasedOnSaasPolicy(sessions, userId, isAMentor) {
+	static async filterSessionsBasedOnSaasPolicy(userId, isAMentor) {
 		try {
-			if (sessions.length === 0) {
-				return sessions
+			const userPolicyDetails = isAMentor
+				? await mentorQueries.getMentorExtension(userId, ['external_session_visibility', 'organization_id'])
+				: await menteeQueries.getMenteeExtension(userId, ['external_session_visibility', 'organization_id'])
+
+			// Throw error if mentor/mentee extension not found
+			if (!userPolicyDetails || Object.keys(userPolicyDetails).length === 0) {
+				return common.failureResponse({
+					statusCode: httpStatusCode.not_found,
+					message: isAMentor ? 'MENTORS_NOT_FOUND' : 'MENTEE_EXTENSION_NOT_FOUND',
+					responseCode: 'CLIENT_ERROR',
+				})
 			}
 
-			let userPolicyDetails
-			// If user is mentor - fetch policy details from mentor extensions else fetch from userExtension
-			if (isAMentor) {
-				userPolicyDetails = await mentorQueries.getMentorExtension(userId, [
-					'external_session_visibility',
-					'org_id',
-				])
-
-				// Throw error if mentor extension not found
-				if (Object.keys(userPolicyDetails).length === 0) {
-					return common.failureResponse({
-						statusCode: httpStatusCode.bad_request,
-						message: 'MENTORS_NOT_FOUND',
-						responseCode: 'CLIENT_ERROR',
-					})
+			let filter = ''
+			if (userPolicyDetails.external_session_visibility && userPolicyDetails.organization_id) {
+				// generate filter based on condition
+				if (userPolicyDetails.external_session_visibility === common.CURRENT) {
+					/**
+					 * If {userPolicyDetails.external_session_visibility === CURRENT} user will be able to sessions-
+					 *  -created by his/her organization mentors.
+					 * So will check if mentor_organization_id equals user's  organization_id
+					 */
+					filter = `AND "mentor_organization_id" = ${userPolicyDetails.organization_id}`
+				} else if (userPolicyDetails.external_session_visibility === common.ASSOCIATED) {
+					/**
+					 * user external_session_visibility is ASSOCIATED
+					 * user can see sessions where session's visible_to_organizations contain user's organization_id and -
+					 *  - session's visibility not CURRENT (In case of same organization session has to be fetched for that we added OR condition {"mentor_organization_id" = ${userPolicyDetails.organization_id}})
+					 */
+					filter = `AND (${userPolicyDetails.organization_id} = ANY("visible_to_organizations") AND "visibility" != 'CURRENT') OR "mentor_organization_id" = ${userPolicyDetails.organization_id}`
+				} else if (userPolicyDetails.external_session_visibility === common.ALL) {
+					/**
+					 * user's external_session_visibility === ALL (ASSOCIATED sessions + sessions whose visibility is ALL)
+					 */
+					filter = `AND (${userPolicyDetails.organization_id} = ANY("visible_to_organizations") AND "visibility" != 'CURRENT' ) OR "visibility" = 'ALL' OR "mentor_organization_id" = ${userPolicyDetails.organization_id}`
 				}
-			} else {
-				userPolicyDetails = await menteeQueries.getMenteeExtension(userId, [
-					'external_session_visibility',
-					'org_id',
-				])
-				// If no mentee present return error
-				if (Object.keys(userPolicyDetails).length === 0) {
-					return common.failureResponse({
-						statusCode: httpStatusCode.not_found,
-						message: 'MENTEE_EXTENSION_NOT_FOUND',
-						responseCode: 'CLIENT_ERROR',
-					})
-				}
 			}
-
-			if (userPolicyDetails.external_session_visibility && userPolicyDetails.org_id) {
-				// Filter sessions based on policy
-				const filteredSessions = await Promise.all(
-					sessions.map(async (session) => {
-						let enrolled = session.is_enrolled ? session.is_enrolled : false
-						if (
-							session.visibility === common.CURRENT ||
-							(session.visibility === common.ALL &&
-								userPolicyDetails.external_session_visibility === common.CURRENT)
-						) {
-							// Check if the session's mentor organization matches the user's organization.
-							if (session.mentor_org_id === userPolicyDetails.org_id || enrolled == true) {
-								return session
-							}
-						} else {
-							return session
-						}
-					})
-				)
-				// Remove any undefined elements (sessions that didn't meet the conditions)
-				sessions = filteredSessions.filter((session) => session !== undefined)
-			}
-			return sessions
+			return filter
 		} catch (err) {
 			return err
 		}
@@ -413,15 +419,10 @@ module.exports = class MenteesHelper {
 	 * @returns {JSON} - List of enrolled sessions
 	 */
 
-	static async getMySessions(page, limit, search, userId, isAMentor) {
+	static async getMySessions(page, limit, search, userId) {
 		try {
 			const upcomingSessions = await sessionQueries.getUpcomingSessions(page, limit, search, userId)
-
-			// // filter upcoming session based on policy ---> commented at level 1 saas changes. will need at level 3
-			// upcomingSessions.rows = await this.filterSessionsBasedOnSaasPolicy(upcomingSessions.rows, userId, isAMentor)
-
 			const upcomingSessionIds = upcomingSessions.rows.map((session) => session.id)
-
 			const usersUpcomingSessions = await sessionAttendeesQueries.usersUpcomingSessions(
 				userId,
 				upcomingSessionIds
@@ -431,7 +432,10 @@ module.exports = class MenteesHelper {
 				(usersUpcomingSession) => usersUpcomingSession.session_id
 			)
 
-			let sessionDetails = await sessionQueries.findAndCountAll({ id: usersUpcomingSessionIds })
+			let sessionDetails = await sessionQueries.findAndCountAll(
+				{ id: usersUpcomingSessionIds },
+				{ order: [['start_date', 'ASC']] }
+			)
 
 			sessionDetails.rows = await this.sessionMentorDetails(sessionDetails.rows)
 
@@ -478,12 +482,12 @@ module.exports = class MenteesHelper {
 
 			// Fetch mentor details
 			const mentorDetails = (await userRequests.getListOfUserDetails(mentorIds)).result
-
 			// Map mentor names to sessions
 			sessions.forEach((session) => {
 				const mentor = mentorDetails.find((mentorDetail) => mentorDetail.id === session.mentor_id)
 				if (mentor) {
 					session.mentor_name = mentor.name
+					session.organization = mentor.organization
 				}
 			})
 
@@ -541,7 +545,7 @@ module.exports = class MenteesHelper {
 
 			let entityTypes = await entityTypeQueries.findUserEntityTypesAndEntities({
 				status: 'ACTIVE',
-				org_id: {
+				organization_id: {
 					[Op.in]: [orgId, defaultOrgId],
 				},
 			})
@@ -549,7 +553,7 @@ module.exports = class MenteesHelper {
 			//validationData = utils.removeParentEntityTypes(JSON.parse(JSON.stringify(validationData)))
 			const validationData = removeDefaultOrgEntityTypes(entityTypes, orgId)
 
-			let res = utils.validateInput(data, validationData, 'user_extensions')
+			let res = utils.validateInput(data, validationData, 'UserExtension')
 			if (!res.success) {
 				return common.failureResponse({
 					message: 'SESSION_CREATION_FAILED',
@@ -563,6 +567,10 @@ module.exports = class MenteesHelper {
 
 			// construct policy object
 			let saasPolicyData = await orgAdminService.constructOrgPolicyObject(organisationPolicy, true)
+
+			userOrgDetails.data.result.related_orgs = userOrgDetails.data.result.related_orgs
+				? userOrgDetails.data.result.related_orgs.concat([saasPolicyData.organization_id])
+				: [saasPolicyData.organization_id]
 
 			// Update mentee extension creation data
 			data = {
@@ -626,7 +634,7 @@ module.exports = class MenteesHelper {
 
 			const filter = {
 				status: 'ACTIVE',
-				org_id: {
+				organization_id: {
 					[Op.in]: [orgId, defaultOrgId],
 				},
 			}
@@ -634,7 +642,7 @@ module.exports = class MenteesHelper {
 
 			//validationData = utils.removeParentEntityTypes(JSON.parse(JSON.stringify(validationData)))
 			const validationData = removeDefaultOrgEntityTypes(entityTypes, orgId)
-			let res = utils.validateInput(data, validationData, 'user_extensions')
+			let res = utils.validateInput(data, validationData, 'UserExtension')
 			if (!res.success) {
 				return common.failureResponse({
 					message: 'SESSION_CREATION_FAILED',
@@ -698,7 +706,7 @@ module.exports = class MenteesHelper {
 
 			const filter = {
 				status: 'ACTIVE',
-				org_id: {
+				organization_id: {
 					[Op.in]: [orgId, defaultOrgId],
 				},
 			}

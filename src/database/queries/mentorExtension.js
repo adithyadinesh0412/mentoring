@@ -1,4 +1,9 @@
 const MentorExtension = require('@database/models/index').MentorExtension // Adjust the path accordingly
+const { QueryTypes } = require('sequelize')
+const sequelize = require('sequelize')
+const Sequelize = require('@database/models/index').sequelize
+const common = require('@constants/common')
+const _ = require('lodash')
 
 module.exports = class MentorExtensionQueries {
 	static async getColumns() {
@@ -21,7 +26,7 @@ module.exports = class MentorExtensionQueries {
 			if (data.user_id) {
 				delete data['user_id']
 			}
-			const whereClause = customFilter ? customFilter : { user_id: userId }
+			const whereClause = _.isEmpty(customFilter) ? { user_id: userId } : customFilter
 			return await MentorExtension.update(data, {
 				where: whereClause,
 				...options,
@@ -68,7 +73,7 @@ module.exports = class MentorExtensionQueries {
 				{
 					designation: null,
 					area_of_expertise: [],
-					education_qualification: [],
+					education_qualification: null,
 					rating: null,
 					meta: null,
 					stats: null,
@@ -79,7 +84,6 @@ module.exports = class MentorExtensionQueries {
 					external_session_visibility: null,
 					external_mentor_visibility: null,
 					deleted_at: Date.now(),
-					org_id,
 				},
 				{
 					where: {
@@ -96,7 +100,7 @@ module.exports = class MentorExtensionQueries {
 		try {
 			const result = await MentorExtension.findAll({
 				where: {
-					user_id: ids, // Assuming "user_id" is the field you want to match
+					user_id: ids,
 				},
 				...options,
 				returning: true,
@@ -106,6 +110,81 @@ module.exports = class MentorExtensionQueries {
 			return result
 		} catch (error) {
 			throw error
+		}
+	}
+
+	static async getAllMentors(options = {}) {
+		try {
+			const result = await MentorExtension.findAll({
+				...options,
+				returning: true,
+				raw: true,
+			})
+
+			return result
+		} catch (error) {
+			throw error
+		}
+	}
+
+	static async getMentorsByUserIdsFromView(
+		ids,
+		page,
+		limit,
+		filter,
+		saasFilter = '',
+		additionalProjectionclause = ''
+	) {
+		try {
+			const filterConditions = []
+
+			if (filter && typeof filter === 'object') {
+				for (const key in filter) {
+					if (Array.isArray(filter[key])) {
+						filterConditions.push(`"${key}" @> ARRAY[:${key}]::character varying[]`)
+					}
+				}
+			}
+			const filterClause = filterConditions.length > 0 ? `AND ${filterConditions.join(' AND ')}` : ''
+
+			const saasFilterClause = saasFilter != '' ? saasFilter : ''
+
+			let projectionClause =
+				'user_id,rating,meta,visibility,organization_id,designation,area_of_expertise,education_qualification'
+			if (additionalProjectionclause !== '') {
+				projectionClause += `,${additionalProjectionclause}`
+			}
+
+			const query = `
+				SELECT ${projectionClause}
+				FROM
+						${common.materializedViewsPrefix + MentorExtension.tableName}
+				WHERE
+					user_id IN (${ids.join(',')})
+					${filterClause}
+					${saasFilterClause}
+				OFFSET
+					:offset
+				LIMIT
+					:limit;
+			`
+			const replacements = {
+				offset: limit * (page - 1),
+				limit: limit,
+				...filter, // Add filter parameters to replacements
+			}
+
+			const sessionAttendeesData = await Sequelize.query(query, {
+				type: QueryTypes.SELECT,
+				replacements: replacements,
+			})
+
+			return {
+				data: sessionAttendeesData,
+				count: sessionAttendeesData.length,
+			}
+		} catch (error) {
+			return error
 		}
 	}
 }

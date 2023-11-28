@@ -208,6 +208,15 @@ let enviromentVariables = {
 		optional: false,
 		default: 'sl',
 	},
+	REFRESH_VIEW_INTERVAL: {
+		message: 'Interval to refresh views in milliseconds',
+		optional: false,
+		default: 540000,
+	},
+	DEFAULT_ORG_ID: {
+		message: 'Default organization ID',
+		optional: false,
+	},
 }
 
 let success = true

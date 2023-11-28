@@ -15,25 +15,26 @@ const mentoringBaseurl = `http://localhost:${process.env.APPLICATION_PORT}`
 /**
  * Create a scheduler job.
  *
- * @param {string} jobId - The unique identifier for the job.
- * @param {number} delay - The delay in milliseconds before the job is executed.
- * @param {string} jobName - The name of the job.
- * @param {string} notificationTemplate - The template for the notification.
- * @param {function} callback - The callback function to handle the result of the job creation.
+ * @param {string} jobId 					- The unique identifier for the job.
+ * @param {number} delay 					- The delay in milliseconds before the job is executed.
+ * @param {string} jobName 					- The name of the job.
+ * @param {Object} requestBody 				- Job api call request body.
+ * @param {function} callback 				- The callback function to handle the result of the job creation.
  */
-const createSchedulerJob = function (jobId, delay, jobName, notificationTemplate) {
+const createSchedulerJob = function (jobId, delay, jobName, requestBody = {}, urlEndpoint, method) {
 	const bodyData = {
 		jobName: jobName,
 		email: email,
 		request: {
-			url: mentoringBaseurl + '/mentoring/v1/notifications/emailCronJob',
-			method: 'post',
+			url: mentoringBaseurl + urlEndpoint,
+			method,
 			header: { internal_access_token: process.env.INTERNAL_ACCESS_TOKEN },
+			reqBody: requestBody,
 		},
+
 		jobOptions: {
 			jobId: jobId,
 			delay: delay,
-			emailTemplate: notificationTemplate,
 			removeOnComplete: true,
 			removeOnFail: false,
 			attempts: 1,

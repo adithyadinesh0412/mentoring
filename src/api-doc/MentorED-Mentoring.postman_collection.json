@@ -1,10 +1,9 @@
 {
 	"info": {
-		"_postman_id": "5d4d24cb-3c5c-4486-8d85-bd10eeaae9c3",
+		"_postman_id": "d8b7643b-0f23-4360-aa77-1608b9b940e5",
 		"name": "MentorED-Mentoring",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-		"_exporter_id": "6350183",
-		"_collection_link": "https://cloudy-eclipse-8615.postman.co/workspace/MentorED~099846e5-b1d5-4043-84b9-1e9ac3fc1e4f/collection/6350183-5d4d24cb-3c5c-4486-8d85-bd10eeaae9c3?action=share&source=collection_link&creator=6350183"
+		"_exporter_id": "21498549"
 	},
 	"item": [
 		{
@@ -402,7 +401,7 @@
 							}
 						},
 						"url": {
-							"raw": "{{MentoringBaseUrl}}mentoring/v1/sessions/list?page=1&limit=2&status=published,completed",
+							"raw": "{{MentoringBaseUrl}}mentoring/v1/sessions/list?page=1&limit=2&recommended_for=hm,deo",
 							"host": ["{{MentoringBaseUrl}}mentoring"],
 							"path": ["v1", "sessions", "list"],
 							"query": [
@@ -415,13 +414,14 @@
 									"value": "2"
 								},
 								{
-									"key": "status",
-									"value": "published,completed"
-								},
-								{
 									"key": "search",
 									"value": "ankit",
 									"disabled": true
+								},
+								{
+									"key": "recommended_for",
+									"value": "hm,deo",
+									"description": "Filters to be applied should be passed like this."
 								}
 							]
 						},
@@ -532,6 +532,39 @@
 				},
 				{
 					"name": "Session Create",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"// Function to generate a random timestamp in the future",
+									"function getRandomFutureTimestamp() {",
+									"    const now = Math.floor(Date.now() / 1000); // Current timestamp in seconds",
+									"    const oneHourInSeconds = 3600; // 1 hour in seconds",
+									"",
+									"    // Generate a random number of hours between 1 and 24",
+									"    const randomHours = Math.floor(Math.random() * 24) + 1;",
+									"",
+									"    // Calculate the future timestamp by adding the random number of hours",
+									"    const futureTimestamp = now + randomHours * oneHourInSeconds;",
+									"",
+									"    return futureTimestamp;",
+									"}",
+									"",
+									"// Get the start and end timestamps",
+									"const startTimestamp = getRandomFutureTimestamp();",
+									"const endTimestamp = startTimestamp + 3600; // 1 hour apart",
+									"",
+									"",
+									"// Set the timestamps in the request body",
+									"pm.variables.set('startTimestamp', startTimestamp);",
+									"pm.variables.set('endTimestamp', endTimestamp);",
+									""
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
 					"request": {
 						"method": "POST",
 						"header": [
@@ -543,7 +576,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"title\": \"Leadership session by rajesh\",\n    \"description\": \"description\",\n    \"start_date\": 1693479180,\n    \"end_date\": 1693486379,\n    \"recommended_for\": [\n        \"hm\"\n    ],\n    \"categories\": [\n        \"Educational leadership\"\n    ],\n    \"medium\": [\n        \"1\"\n    ],\n    \"time_zone\": \"Asia/Calcutta\",\n    \"image\": [\n        \"users/1232s2133sdd1-12e2dasd3123.png\"\n    ]\n}",
+							"raw": "{\n    \"title\": \"ssss\",\n    \"description\": \"description\",\n    \"start_date\": 1700845214,\n    \"end_date\": 1700847314,\n    \"recommended_for\": [\n        \"hm\"\n    ],\n    \"categories\": [\n        \"educational_leadership\"\n    ],\n    \"medium\": [\n        \"en_in\"\n    ],\n    \"time_zone\": \"Asia/Calcutta\",\n    \"image\": [\n        \"users/1232s2133sdd1-12e2dasd3123.png\"\n    ]\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -604,29 +637,18 @@
 							}
 						],
 						"body": {
-							"mode": "urlencoded",
-							"urlencoded": [
-								{
-									"key": "start_date",
-									"value": "1692616200",
-									"type": "text"
-								},
-								{
-									"key": "end_date",
-									"value": "1692619800",
-									"type": "text"
-								},
-								{
-									"key": "title",
-									"value": "session no three",
-									"type": "text"
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"test\",\n    \"description\": \"description\",\n    \"start_date\": 1700568950,\n    \"end_date\": 1700570750,\n    \"recommended_for\": [\n        \"hm\"\n    ],\n    \"categories\": [\n        \"educational_leadership\"\n    ],\n    \"medium\": [\n        \"en_in\"\n    ],\n    \"time_zone\": \"Asia/Calcutta\",\n    \"image\": [\n        \"users/1232s2133sdd1-12e2dasd3123.png\"\n    ]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
 								}
-							]
+							}
 						},
 						"url": {
-							"raw": "{{MentoringBaseUrl}}mentoring/v1/sessions/update/3",
+							"raw": "{{MentoringBaseUrl}}mentoring/v1/sessions/update/41",
 							"host": ["{{MentoringBaseUrl}}mentoring"],
-							"path": ["v1", "sessions", "update", "3"]
+							"path": ["v1", "sessions", "update", "41"]
 						}
 					},
 					"response": []
@@ -737,7 +759,7 @@
 			"name": "mentees",
 			"item": [
 				{
-					"name": "Mentees Sessions",
+					"name": "Mentees Enrolled Sessions",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -748,14 +770,10 @@
 							}
 						],
 						"url": {
-							"raw": "{{MentoringBaseUrl}}mentoring/v1/mentees/sessions?enrolled=true&page=1&limit=20",
+							"raw": "{{MentoringBaseUrl}}mentoring/v1/mentees/sessions?page=1&limit=20",
 							"host": ["{{MentoringBaseUrl}}mentoring"],
 							"path": ["v1", "mentees", "sessions"],
 							"query": [
-								{
-									"key": "enrolled",
-									"value": "true"
-								},
 								{
 									"key": "search",
 									"value": "my data",
@@ -892,7 +910,7 @@
 					"response": []
 				},
 				{
-					"name": "Get Mentor Profile",
+					"name": "Mentor Details",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -903,15 +921,15 @@
 							}
 						],
 						"url": {
-							"raw": "{{MentoringBaseUrl}}mentoring/v1/mentors/profile/1",
+							"raw": "{{MentoringBaseUrl}}mentoring/v1/mentors/details/1",
 							"host": ["{{MentoringBaseUrl}}mentoring"],
-							"path": ["v1", "mentors", "profile", "1"]
+							"path": ["v1", "mentors", "details", "1"]
 						}
 					},
 					"response": []
 				},
 				{
-					"name": "Get Mentor upcommingSession",
+					"name": "Upcoming Sessions",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -922,7 +940,7 @@
 							}
 						],
 						"url": {
-							"raw": "{{MentoringBaseUrl}}mentoring/v1/mentors/upcomingSessions/1?page=1&limit=5",
+							"raw": "{{MentoringBaseUrl}}mentoring/v1/mentors/upcomingSessions/1?page=1&limit=5&recommended_for=hm",
 							"host": ["{{MentoringBaseUrl}}mentoring"],
 							"path": ["v1", "mentors", "upcomingSessions", "1"],
 							"query": [
@@ -938,6 +956,10 @@
 									"key": "search",
 									"value": "testing5",
 									"disabled": true
+								},
+								{
+									"key": "recommended_for",
+									"value": "hm"
 								}
 							]
 						}
@@ -966,6 +988,50 @@
 							"raw": "{{MentoringBaseUrl}}mentoring/v1/mentors/share/1",
 							"host": ["{{MentoringBaseUrl}}mentoring"],
 							"path": ["v1", "mentors", "share", "1"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Mentor List",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-auth-token",
+								"value": "bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{MentoringBaseUrl}}mentoring/v1/mentors/list",
+							"host": ["{{MentoringBaseUrl}}mentoring"],
+							"path": ["v1", "mentors", "list"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Crearted Sessions",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-auth-token",
+								"value": "bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{MentoringBaseUrl}}mentoring/v1/mentors/createdSessions?status=PUBLISHED,COMPLETED",
+							"host": ["{{MentoringBaseUrl}}mentoring"],
+							"path": ["v1", "mentors", "createdSessions"],
+							"query": [
+								{
+									"key": "status",
+									"value": "PUBLISHED,COMPLETED"
+								}
+							]
 						}
 					},
 					"response": []
@@ -1334,6 +1400,101 @@
 						}
 					},
 					"response": []
+				},
+				{
+					"name": "Build views",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-auth-token",
+								"value": "bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{MentoringBaseUrl}}mentoring/v1/admin/triggerViewRebuild",
+							"host": ["{{MentoringBaseUrl}}mentoring"],
+							"path": ["v1", "admin", "triggerViewRebuild"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Build views (Internal)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "internal_access_token",
+								"value": "{{internal_access_token}}",
+								"type": "text",
+								"disabled": true
+							},
+							{
+								"key": "X-auth-token",
+								"value": "bearer {{token}}",
+								"type": "text",
+								"disabled": true
+							}
+						],
+						"url": {
+							"raw": "{{MentoringBaseUrl}}mentoring/v1/admin/triggerViewRebuildInternal",
+							"host": ["{{MentoringBaseUrl}}mentoring"],
+							"path": ["v1", "admin", "triggerViewRebuildInternal"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh Views",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "internal_access_token",
+								"value": "{{internal_access_token}}",
+								"type": "text",
+								"disabled": true
+							},
+							{
+								"key": "X-auth-token",
+								"value": "bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{MentoringBaseUrl}}mentoring/v1/admin/triggerPeriodicViewRefresh",
+							"host": ["{{MentoringBaseUrl}}mentoring"],
+							"path": ["v1", "admin", "triggerPeriodicViewRefresh"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh Views (Internal)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "internal_access_token",
+								"value": "{{internal_access_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{MentoringBaseUrl}}mentoring/v1/admin/triggerPeriodicViewRefreshInternal?model_name=Session",
+							"host": ["{{MentoringBaseUrl}}mentoring"],
+							"path": ["v1", "admin", "triggerPeriodicViewRefreshInternal"],
+							"query": [
+								{
+									"key": "model_name",
+									"value": "Session"
+								}
+							]
+						}
+					},
+					"response": []
 				}
 			]
 		},
@@ -1392,9 +1553,9 @@
 							}
 						},
 						"url": {
-							"raw": "{{MentoringBaseUrl}}mentoring/v1/profile/read/",
+							"raw": "{{MentoringBaseUrl}}mentoring/v1/profile/read",
 							"host": ["{{MentoringBaseUrl}}mentoring"],
-							"path": ["v1", "profile", "read", ""]
+							"path": ["v1", "profile", "read"]
 						}
 					},
 					"response": []
@@ -1467,7 +1628,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n\t\"user_id\":1,\n\t\"current_roles\":[\"mentor\"],\n\t\"new_roles\":[\"mentee\"]\n}"
+							"raw": "{\n    \"user_id\": 1,\n    \"current_roles\": [\n        \"mentee\"\n    ],\n    \"new_roles\": [\n        \"mentor\"\n    ]\n}"
 						},
 						"url": {
 							"raw": "{{MentoringBaseUrl}}mentoring/v1/org-admin/roleChange",
@@ -1510,12 +1671,12 @@
 						"header": [
 							{
 								"key": "X-auth-token",
-								"value": "bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJkYXRhIjp7ImlkIjo3LCJlbWFpbCI6Im9yZ2FkbWluQHR1bmVybGFicy5jb20iLCJuYW1lIjoicHJpeWFua2EiLCJvcmdhbml6YXRpb25faWQiOjEsInJvbGVzIjpbeyJpZCI6NSwidGl0bGUiOiJvcmdfYWRtaW4iLCJ1c2VyX3R5cGUiOjEsInN0YXR1cyI6IkFDVElWRSJ9XX0sImlhdCI6MTY5NjU5NTM0NSwiZXhwIjoxNjk2NjgxNzQ1fQ.-31KTqIJ2u-qEOA2cz5YrITGgUqeUhMcZAmMDbpcjfg"
+								"value": "bearer {{token}}"
 							}
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"session_visibility_policy\": \"parent\",\n    \"mentor_visibility_policy\": \"parent\",\n    \"external_session_visibility_policy\": \"all\",\n    \"external_mentor_visibility_policy\": \"associated\",\n    \"allow_mentor_override\": false\n}",
+							"raw": "{\n    \"session_visibility_policy\": \"ALL\",\n    \"mentor_visibility_policy\": \"ALL\",\n    \"external_session_visibility_policy\": \"ALL\",\n    \"external_mentor_visibility_policy\": \"ALL\",\n    \"allow_mentor_override\": false\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -1537,13 +1698,40 @@
 						"header": [
 							{
 								"key": "X-auth-token",
-								"value": "bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJkYXRhIjp7ImlkIjo3LCJlbWFpbCI6Im9yZ2FkbWluQHR1bmVybGFicy5jb20iLCJuYW1lIjoicHJpeWFua2EiLCJvcmdhbml6YXRpb25faWQiOjEsInJvbGVzIjpbeyJpZCI6NSwidGl0bGUiOiJvcmdfYWRtaW4iLCJ1c2VyX3R5cGUiOjEsInN0YXR1cyI6IkFDVElWRSJ9XX0sImlhdCI6MTY5NjU5NTM0NSwiZXhwIjoxNjk2NjgxNzQ1fQ.-31KTqIJ2u-qEOA2cz5YrITGgUqeUhMcZAmMDbpcjfg"
+								"value": "bearer {{token}}"
 							}
 						],
 						"url": {
 							"raw": "{{MentoringBaseUrl}}mentoring/v1/org-admin/getOrgPolicies",
 							"host": ["{{MentoringBaseUrl}}mentoring"],
 							"path": ["v1", "org-admin", "getOrgPolicies"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update related orgs",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-auth-token",
+								"value": "bearer {{token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"related_organization_ids\": [\n        4\n    ],\n    \"organization_id\": 1\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{MentoringBaseUrl}}mentoring/v1/org-admin/updateRelatedOrgs",
+							"host": ["{{MentoringBaseUrl}}mentoring"],
+							"path": ["v1", "org-admin", "updateRelatedOrgs"]
 						}
 					},
 					"response": []
@@ -1602,6 +1790,28 @@
 							"raw": "{{MentoringBaseUrl}}interface/v1/account/create",
 							"host": ["{{MentoringBaseUrl}}interface"],
 							"path": ["v1", "account", "create"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Profile Create Copy",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"value\": [\n        \"medium\",\n        \"languages\"\n    ]\n}"
+						},
+						"url": {
+							"raw": "{{MentoringBaseUrl}}/interface/v1/entity-type/read",
+							"host": ["{{MentoringBaseUrl}}"],
+							"path": ["interface", "v1", "entity-type", "read"]
 						}
 					},
 					"response": []

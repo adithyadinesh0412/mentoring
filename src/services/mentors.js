@@ -5,6 +5,7 @@ const common = require('@constants/common')
 const httpStatusCode = require('@generics/http-status')
 const mentorQueries = require('@database/queries/mentorExtension')
 const userExtension = require('@database/queries/userExtension')
+const menteeQueries = require('@database/queries/userExtension')
 const { UniqueConstraintError } = require('sequelize')
 const _ = require('lodash')
 const sessionAttendeesQueries = require('@database/queries/sessionAttendees')
@@ -15,7 +16,9 @@ const orgAdminService = require('@services/org-admin')
 const { getDefaultOrgId } = require('@helpers/getDefaultOrgId')
 const { Op } = require('sequelize')
 const { removeDefaultOrgEntityTypes } = require('@generics/utils')
-const usersService = require('@services/users')
+const moment = require('moment')
+const menteesService = require('@services/mentees')
+const entityTypeService = require('@services/entity-type')
 
 module.exports = class MentorsHelper {
 	/**
@@ -28,8 +31,15 @@ module.exports = class MentorsHelper {
 	 * @param {String} search - Search text.
 	 * @returns {JSON} - mentors upcoming session details
 	 */
-	static async upcomingSessions(id, page, limit, search = '', menteeUserId) {
+	static async upcomingSessions(id, page, limit, search = '', menteeUserId, queryParams, isAMentor) {
 		try {
+			const query = utils.processQueryParametersWithExclusions(queryParams)
+			console.log(query)
+			let validationData = await entityTypeQueries.findAllEntityTypesAndEntities({
+				status: 'ACTIVE',
+			})
+			const filteredQuery = utils.validateFilters(query, JSON.parse(JSON.stringify(validationData)), 'sessions')
+
 			const mentorsDetails = await mentorQueries.getMentorExtension(id)
 			if (!mentorsDetails) {
 				return common.failureResponse({
@@ -39,7 +49,17 @@ module.exports = class MentorsHelper {
 				})
 			}
 
-			let upcomingSessions = await sessionQueries.getMentorsUpcomingSessions(page, limit, search, id)
+			// Filter upcoming sessions based on saas policy
+			const saasFilter = await menteesService.filterSessionsBasedOnSaasPolicy(menteeUserId, isAMentor)
+
+			let upcomingSessions = await sessionQueries.getMentorsUpcomingSessionsFromView(
+				page,
+				limit,
+				search,
+				id,
+				filteredQuery,
+				saasFilter
+			)
 
 			if (!upcomingSessions.data.length) {
 				return common.successResponse({
@@ -53,10 +73,10 @@ module.exports = class MentorsHelper {
 			}
 
 			upcomingSessions.data = await this.sessionMentorDetails(upcomingSessions.data)
-
 			if (menteeUserId && id != menteeUserId) {
 				upcomingSessions.data = await this.menteeSessionDetails(upcomingSessions.data, menteeUserId)
 			}
+
 			return common.successResponse({
 				statusCode: httpStatusCode.ok,
 				message: 'UPCOMING_SESSION_FETCHED',
@@ -198,6 +218,7 @@ module.exports = class MentorsHelper {
 				for (let i = 0; i < session.length; i++) {
 					let mentorIndex = mentorDetails.findIndex((x) => x.id === session[i].mentor_id)
 					session[i].mentor_name = mentorDetails[mentorIndex].name
+					session[i].organization = mentorDetails[mentorIndex].organization
 				}
 
 				await Promise.all(
@@ -285,7 +306,7 @@ module.exports = class MentorsHelper {
 
 			let entityTypes = await entityTypeQueries.findUserEntityTypesAndEntities({
 				status: 'ACTIVE',
-				org_id: {
+				organization_id: {
 					[Op.in]: [orgId, defaultOrgId],
 				},
 			})
@@ -293,7 +314,7 @@ module.exports = class MentorsHelper {
 			//validationData = utils.removeParentEntityTypes(JSON.parse(JSON.stringify(validationData)))
 			const validationData = removeDefaultOrgEntityTypes(entityTypes, orgId)
 
-			let res = utils.validateInput(data, validationData, 'mentor_extensions')
+			let res = utils.validateInput(data, validationData, 'MentorExtension')
 			if (!res.success) {
 				return common.failureResponse({
 					message: 'SESSION_CREATION_FAILED',
@@ -307,6 +328,10 @@ module.exports = class MentorsHelper {
 
 			// construct saas policy data
 			let saasPolicyData = await orgAdminService.constructOrgPolicyObject(organisationPolicy, true)
+
+			userOrgDetails.data.result.related_orgs = userOrgDetails.data.result.related_orgs
+				? userOrgDetails.data.result.related_orgs.concat([saasPolicyData.organization_id])
+				: [saasPolicyData.organization_id]
 
 			// update mentee extension data
 			data = {
@@ -383,7 +408,7 @@ module.exports = class MentorsHelper {
 
 			let entityTypes = await entityTypeQueries.findUserEntityTypesAndEntities({
 				status: 'ACTIVE',
-				org_id: {
+				organization_id: {
 					[Op.in]: [orgId, defaultOrgId],
 				},
 			})
@@ -461,7 +486,7 @@ module.exports = class MentorsHelper {
 	 * @method
 	 * @name read
 	 * @param {Number} id 						- mentor id.
-	 * @param {Number} orgId 					- org_id
+	 * @param {Number} orgId 					- org id
 	 * @param {Number} userId 					- User id.
 	 * @param {Boolean} isAMentor 				- user mentor or not.
 	 * @returns {JSON} 							- profile details
@@ -469,25 +494,26 @@ module.exports = class MentorsHelper {
 	static async read(id, orgId, userId = '', isAMentor = '') {
 		try {
 			if (userId !== '' && isAMentor !== '') {
-				// Get mentor visibility and org_id
-				let requstedMentorExtension = await mentorQueries.getMentorExtension(id, ['visibility', 'org_id'])
+				// Get mentor visibility and org id
+				let requstedMentorExtension = await mentorQueries.getMentorExtension(id, [
+					'visibility',
+					'organization_id',
+					'visible_to_organizations',
+				])
 
 				// Throw error if extension not found
-				if (Object.keys(requstedMentorExtension).length === 0) {
+				if (!requstedMentorExtension || Object.keys(requstedMentorExtension).length === 0) {
 					return common.failureResponse({
 						statusCode: httpStatusCode.not_found,
 						message: 'MENTORS_NOT_FOUND',
 					})
 				}
 
-				requstedMentorExtension = await usersService.filterMentorListBasedOnSaasPolicy(
-					[requstedMentorExtension],
-					userId,
-					isAMentor
-				)
+				// Check for accessibility for reading shared mentor profile
+				const isAccessible = await this.checkIfMentorIsAccessible([requstedMentorExtension], userId, isAMentor)
 
 				// Throw access error
-				if (requstedMentorExtension.length === 0) {
+				if (!isAccessible) {
 					return common.failureResponse({
 						statusCode: httpStatusCode.not_found,
 						message: 'PROFILE_RESTRICTED',
@@ -528,14 +554,13 @@ module.exports = class MentorsHelper {
 
 			let entityTypes = await entityTypeQueries.findUserEntityTypesAndEntities({
 				status: 'ACTIVE',
-				org_id: {
+				organization_id: {
 					[Op.in]: [orgId, defaultOrgId],
 				},
 			})
 
-			//validationData = utils.removeParentEntityTypes(JSON.parse(JSON.stringify(validationData)))
+			// validationData = utils.removeParentEntityTypes(JSON.parse(JSON.stringify(validationData)))
 			const validationData = removeDefaultOrgEntityTypes(entityTypes, orgId)
-
 			const processDbResponse = utils.processDbResponse(mentorExtension, validationData)
 			const totalSessionHosted = await sessionQueries.countHostedSessions(id)
 
@@ -596,6 +621,343 @@ module.exports = class MentorsHelper {
 		} catch (error) {
 			console.error(error)
 			return error
+		}
+	}
+
+	/**
+	 * @description 							- check if mentor is accessible based on user's saas policy.
+	 * @method
+	 * @name checkIfMentorIsAccessible
+	 * @param {Number} userId 					- User id.
+	 * @param {Array}							- Session data
+	 * @param {Boolean} isAMentor 				- user mentor or not.
+	 * @returns {JSON} 							- List of filtered sessions
+	 */
+	static async checkIfMentorIsAccessible(userData, userId, isAMentor) {
+		try {
+			// user can be mentor or mentee, based on isAMentor key get policy details
+			const userPolicyDetails = isAMentor
+				? await mentorQueries.getMentorExtension(userId, ['external_mentor_visibility', 'organization_id'])
+				: await menteeQueries.getMenteeExtension(userId, ['external_mentor_visibility', 'organization_id'])
+
+			// Throw error if mentor/mentee extension not found
+			if (!userPolicyDetails || Object.keys(userPolicyDetails).length === 0) {
+				return common.failureResponse({
+					statusCode: httpStatusCode.not_found,
+					message: isAMentor ? 'MENTORS_NOT_FOUND' : 'MENTEE_EXTENSION_NOT_FOUND',
+					responseCode: 'CLIENT_ERROR',
+				})
+			}
+
+			// check the accessibility conditions
+			let isAccessible = false
+			if (userPolicyDetails.external_mentor_visibility && userPolicyDetails.organization_id) {
+				const { external_mentor_visibility, organization_id } = userPolicyDetails
+				const mentor = userData[0]
+				switch (external_mentor_visibility) {
+					/**
+					 * if user external_mentor_visibility is current. He can only see his/her organizations mentors
+					 * so we will check mentor's organization_id and user organization_id are matching
+					 */
+					case common.CURRENT:
+						isAccessible = mentor.organization_id === organization_id
+						break
+					/**
+					 * If user external_mentor_visibility is associated
+					 * <<point**>> first we need to check if mentor's visible_to_organizations contain the user organization_id and verify mentor's visibility is not current (if it is ALL and ASSOCIATED it is accessible)
+					 */
+					case common.ASSOCIATED:
+						isAccessible =
+							(mentor.visible_to_organizations.includes(organization_id) &&
+								mentor.visibility != common.CURRENT) ||
+							mentor.organization_id === organization_id
+						break
+					/**
+					 * We need to check if mentor's visible_to_organizations contain the user organization_id and verify mentor's visibility is not current (if it is ALL and ASSOCIATED it is accessible)
+					 * OR if mentor visibility is ALL that mentor is also accessible
+					 */
+					case common.ALL:
+						isAccessible =
+							(mentor.visible_to_organizations.includes(organization_id) &&
+								mentor.visibility != common.CURRENT) ||
+							mentor.visibility === common.ALL ||
+							mentor.organization_id === organization_id
+						break
+					default:
+						break
+				}
+			}
+			return isAccessible
+		} catch (err) {
+			return err
+		}
+	}
+	/**
+	 * Get user list.
+	 * @method
+	 * @name create
+	 * @param {Number} pageSize -  Page size.
+	 * @param {Number} pageNo -  Page number.
+	 * @param {String} searchText -  Search text.
+	 * @param {JSON} queryParams -  Query params.
+	 * @param {Boolean} isAMentor -  Is a mentor.
+	 * @returns {JSON} - User list.
+	 */
+
+	static async list(pageNo, pageSize, searchText, queryParams, userId, isAMentor) {
+		try {
+			let additionalProjectionString = ''
+
+			// check for fields query
+			if (queryParams.fields && queryParams.fields !== '') {
+				additionalProjectionString = queryParams.fields
+				delete queryParams.fields
+			}
+
+			const query = utils.processQueryParametersWithExclusions(queryParams)
+
+			let validationData = await entityTypeQueries.findAllEntityTypesAndEntities({
+				status: 'ACTIVE',
+			})
+
+			const filteredQuery = utils.validateFilters(query, JSON.parse(JSON.stringify(validationData)), 'sessions')
+			const userType = common.MENTOR_ROLE
+			const userDetails = await userRequests.listWithoutLimit(userType, searchText)
+			if (userDetails.data.result.data.length == 0) {
+				return common.successResponse({
+					statusCode: httpStatusCode.ok,
+					message: userDetails.data.message,
+					result: {
+						data: [],
+						count: 0,
+					},
+				})
+			}
+
+			const ids = userDetails.data.result.data.reduce((acc, item) => {
+				const idsForKey = item.values.map((value) => value.id)
+				return acc.concat(idsForKey)
+			}, [])
+
+			// Filter user data based on SAAS policy
+			const saasFilter = await this.filterMentorListBasedOnSaasPolicy(userId, isAMentor)
+
+			let extensionDetails = await mentorQueries.getMentorsByUserIdsFromView(
+				ids,
+				pageNo,
+				pageSize,
+				filteredQuery,
+				saasFilter,
+				additionalProjectionString
+			)
+
+			if (extensionDetails.data.length > 0) {
+				const uniqueOrgIds = [...new Set(extensionDetails.data.map((obj) => obj.organization_id))]
+				extensionDetails.data = await entityTypeService.processEntityTypesToAddValueLabels(
+					extensionDetails.data,
+					uniqueOrgIds,
+					common.mentorExtensionModelName,
+					'organization_id'
+				)
+			}
+
+			const extensionDataMap = new Map(extensionDetails.data.map((newItem) => [newItem.user_id, newItem]))
+
+			userDetails.data.result.data = userDetails.data.result.data.map((group) => {
+				// Map over each value in the values array of the current group
+				group.values = group.values
+					.map((value) => {
+						const user_id = value.id
+
+						// Check if extensionDataMap has an entry with the key equal to the user_id
+						if (extensionDataMap.has(user_id)) {
+							const newItem = extensionDataMap.get(user_id)
+							value = { ...value, ...newItem }
+							delete value.user_id
+							delete value.visibility
+							delete value.organization_id
+							delete value.meta
+							return value
+						}
+
+						// If the entry doesn't exist in extensionDataMap, return null
+						return null
+					})
+					// Filter out values that are null (entries that didn't exist in extensionDataMap)
+					.filter((value) => value !== null)
+
+				// Return the updated group
+				return group
+			})
+			// filter out empty values data
+			const filteredData = userDetails.data.result.data.filter((entry) => entry.values.length > 0)
+			userDetails.data.result.data = filteredData
+
+			userDetails.data.result.count = extensionDetails.count
+			const sortedData = _.sortBy(userDetails.data.result.data, 'key') || []
+			userDetails.data.result.data = sortedData
+
+			return common.successResponse({
+				statusCode: httpStatusCode.ok,
+				message: userDetails.data.message,
+				result: userDetails.data.result,
+			})
+		} catch (error) {
+			throw error
+		}
+	}
+	/**
+	 * @description 							- Filter mentor list based on user's saas policy.
+	 * @method
+	 * @name filterMentorListBasedOnSaasPolicy
+	 * @param {Number} userId 					- User id.
+	 * @param {Boolean} isAMentor 				- user mentor or not.
+	 * @returns {JSON} 							- List of filtered sessions
+	 */
+	static async filterMentorListBasedOnSaasPolicy(userId, isAMentor) {
+		try {
+			const userPolicyDetails = isAMentor
+				? await mentorQueries.getMentorExtension(userId, ['external_mentor_visibility', 'organization_id'])
+				: await menteeQueries.getMenteeExtension(userId, ['external_mentor_visibility', 'organization_id'])
+
+			// Throw error if mentor/mentee extension not found
+			if (!userPolicyDetails || Object.keys(userPolicyDetails).length === 0) {
+				return common.failureResponse({
+					statusCode: httpStatusCode.not_found,
+					message: isAMentor ? 'MENTORS_NOT_FOUND' : 'MENTEE_EXTENSION_NOT_FOUND',
+					responseCode: 'CLIENT_ERROR',
+				})
+			}
+
+			let filter = ''
+			if (userPolicyDetails.external_mentor_visibility && userPolicyDetails.organization_id) {
+				// Filter user data based on policy
+				// generate filter based on condition
+				if (userPolicyDetails.external_mentor_visibility === common.CURRENT) {
+					/**
+					 * if user external_mentor_visibility is current. He can only see his/her organizations mentors
+					 * so we will check mentor's organization_id and user organization_id are matching
+					 */
+					filter = `AND "organization_id" = ${userPolicyDetails.organization_id}`
+				} else if (userPolicyDetails.external_mentor_visibility === common.ASSOCIATED) {
+					/**
+					 * If user external_mentor_visibility is associated
+					 * <<point**>> first we need to check if mentor's visible_to_organizations contain the user organization_id and verify mentor's visibility is not current (if it is ALL and ASSOCIATED it is accessible)
+					 */
+					filter = `AND (${userPolicyDetails.organization_id} = ANY("visible_to_organizations") AND "visibility" != 'CURRENT') OR "organization_id" = ${userPolicyDetails.organization_id}`
+				} else if (userPolicyDetails.external_mentor_visibility === common.ALL) {
+					/**
+					 * We need to check if mentor's visible_to_organizations contain the user organization_id and verify mentor's visibility is not current (if it is ALL and ASSOCIATED it is accessible)
+					 * OR if mentor visibility is ALL that mentor is also accessible
+					 */
+					filter = `AND (${userPolicyDetails.organization_id} = ANY("visible_to_organizations") AND "visibility" != 'CURRENT' ) OR "visibility" = 'ALL' OR "organization_id" = ${userPolicyDetails.organization_id}`
+				}
+			}
+
+			return filter
+		} catch (err) {
+			return err
+		}
+	}
+
+	/**
+	 * Sessions list
+	 * @method
+	 * @name list
+	 * @param {Object} req -request data.
+	 * @param {String} req.decodedToken.id - User Id.
+	 * @param {String} req.pageNo - Page No.
+	 * @param {String} req.pageSize - Page size limit.
+	 * @param {String} req.searchText - Search text.
+	 * @returns {JSON} - Session List.
+	 */
+
+	static async createdSessions(loggedInUserId, page, limit, search, status, roles) {
+		try {
+			if (!utils.isAMentor(roles)) {
+				return common.failureResponse({
+					statusCode: httpStatusCode.bad_request,
+					message: 'NOT_A_MENTOR',
+					responseCode: 'CLIENT_ERROR',
+				})
+			}
+			// update sessions which having status as published/live and  exceeds the current date and time
+			const currentDate = Math.floor(moment.utc().valueOf() / 1000)
+			/* 			const filterQuery = {
+				[Op.or]: [
+					{
+						status: common.PUBLISHED_STATUS,
+						end_date: {
+							[Op.lt]: currentDate,
+						},
+					},
+					{
+						status: common.LIVE_STATUS,
+						'meeting_info.value': {
+							[Op.ne]: common.BBB_VALUE,
+						},
+						end_date: {
+							[Op.lt]: currentDate,
+						},
+					},
+				],
+			}
+
+			await sessionQueries.updateSession(filterQuery, {
+				status: common.COMPLETED_STATUS,
+			}) */
+
+			let arrayOfStatus = []
+			if (status && status != '') {
+				arrayOfStatus = status.split(',')
+			}
+
+			let filters = {
+				mentor_id: loggedInUserId,
+			}
+			if (arrayOfStatus.length > 0) {
+				// if (arrayOfStatus.includes(common.COMPLETED_STATUS) && arrayOfStatus.length == 1) {
+				// 	filters['endDateUtc'] = {
+				// 		$lt: moment().utc().format(),
+				// 	}
+				// } else
+				if (arrayOfStatus.includes(common.PUBLISHED_STATUS) && arrayOfStatus.includes(common.LIVE_STATUS)) {
+					filters['end_date'] = {
+						[Op.gte]: currentDate,
+					}
+				}
+
+				filters['status'] = arrayOfStatus
+			}
+
+			const sessionDetails = await sessionQueries.findAllSessions(page, limit, search, filters)
+
+			if (sessionDetails.count == 0 || sessionDetails.rows.length == 0) {
+				return common.successResponse({
+					message: 'SESSION_FETCHED_SUCCESSFULLY',
+					statusCode: httpStatusCode.ok,
+					result: [],
+				})
+			}
+
+			sessionDetails.rows = await this.sessionMentorDetails(sessionDetails.rows)
+
+			//remove meeting_info details except value and platform
+			sessionDetails.rows.forEach((item) => {
+				if (item.meeting_info) {
+					item.meeting_info = {
+						value: item.meeting_info.value,
+						platform: item.meeting_info.platform,
+					}
+				}
+			})
+			return common.successResponse({
+				statusCode: httpStatusCode.ok,
+				message: 'SESSION_FETCHED_SUCCESSFULLY',
+				result: { count: sessionDetails.count, data: sessionDetails.rows },
+			})
+		} catch (error) {
+			throw error
 		}
 	}
 }

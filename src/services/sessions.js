@@ -4,7 +4,7 @@ const moment = require('moment-timezone')
 const httpStatusCode = require('@generics/http-status')
 const apiEndpoints = require('@constants/endpoints')
 const common = require('@constants/common')
-const sessionData = require('@db/sessions/queries')
+//const sessionData = require('@db/sessions/queries')
 const notificationTemplateData = require('@db/notification-template/query')
 const kafkaCommunication = require('@generics/kafka-communication')
 const apiBaseUrl = process.env.USER_SERVICE_HOST + process.env.USER_SERVICE_BASE_URL
@@ -12,12 +12,14 @@ const request = require('request')
 const sessionQueries = require('@database/queries/sessions')
 const sessionAttendeesQueries = require('@database/queries/sessionAttendees')
 const mentorExtensionQueries = require('@database/queries/mentorExtension')
+const menteeExtensionQueries = require('@database/queries/userExtension')
 const sessionEnrollmentQueries = require('@database/queries/sessionEnrollments')
 const postSessionQueries = require('@database/queries/postSessionDetail')
 const sessionOwnershipQueries = require('@database/queries/sessionOwnership')
 const entityTypeQueries = require('@database/queries/entityType')
 const entitiesQueries = require('@database/queries/entity')
 const { Op } = require('sequelize')
+const notificationQueries = require('@database/queries/notificationTemplate')
 
 const schedulerRequest = require('@requests/scheduler')
 
@@ -29,8 +31,7 @@ const bigBlueButtonService = require('./bigBlueButton')
 const organisationExtensionQueries = require('@database/queries/organisationExtension')
 const { getDefaultOrgId } = require('@helpers/getDefaultOrgId')
 const { removeDefaultOrgEntityTypes } = require('@generics/utils')
-const menteesService = require('@services/mentees')
-
+const menteeService = require('@services/mentees')
 module.exports = class SessionsHelper {
 	/**
 	 * Create session.
@@ -91,7 +92,7 @@ module.exports = class SessionsHelper {
 
 			let entityTypes = await entityTypeQueries.findUserEntityTypesAndEntities({
 				status: 'ACTIVE',
-				org_id: {
+				organization_id: {
 					[Op.in]: [orgId, defaultOrgId],
 				},
 			})
@@ -99,7 +100,7 @@ module.exports = class SessionsHelper {
 			//validationData = utils.removeParentEntityTypes(JSON.parse(JSON.stringify(validationData)))
 			const validationData = removeDefaultOrgEntityTypes(entityTypes, orgId)
 
-			let res = utils.validateInput(bodyData, validationData, 'sessions')
+			let res = utils.validateInput(bodyData, validationData, await sessionQueries.getModelName())
 			if (!res.success) {
 				return common.failureResponse({
 					message: 'SESSION_CREATION_FAILED',
@@ -122,7 +123,7 @@ module.exports = class SessionsHelper {
 				}
 			}
 
-			bodyData['mentor_org_id'] = orgId
+			bodyData['mentor_organization_id'] = orgId
 			// SAAS changes; Include visibility and visible organisations
 			// Call user service to fetch organisation details --SAAS related changes
 			let userOrgDetails = await userRequests.fetchDefaultOrgDetails(orgId)
@@ -139,6 +140,9 @@ module.exports = class SessionsHelper {
 			let organisationPolicy = await organisationExtensionQueries.findOrInsertOrganizationExtension(orgId)
 			bodyData.visibility = organisationPolicy.session_visibility_policy
 			bodyData.visible_to_organizations = userOrgDetails.data.result.related_orgs
+				? userOrgDetails.data.result.related_orgs.concat([orgId])
+				: [orgId]
+
 			const data = await sessionQueries.create(bodyData)
 
 			await sessionOwnershipQueries.create({
@@ -152,23 +156,39 @@ module.exports = class SessionsHelper {
 			const processDbResponse = utils.processDbResponse(data.toJSON(), validationData)
 
 			// Set notification schedulers for the session
-			let jobsToCreate = common.jobsToCreate
+			// Deep clone to avoid unintended modifications to the original object.
+			const jobsToCreate = _.cloneDeep(common.jobsToCreate)
 
 			// Calculate delays for notification jobs
 			jobsToCreate[0].delay = await utils.getTimeDifferenceInMilliseconds(bodyData.start_date, 1, 'hour')
 			jobsToCreate[1].delay = await utils.getTimeDifferenceInMilliseconds(bodyData.start_date, 24, 'hour')
 			jobsToCreate[2].delay = await utils.getTimeDifferenceInMilliseconds(bodyData.start_date, 15, 'minutes')
 
+			if (data.toJSON().meeting_info.value !== common.BBB_VALUE) {
+				jobsToCreate[3].delay = await utils.getTimeDifferenceInMilliseconds(bodyData.end_date, 0, 'minutes')
+			} else jobsToCreate.pop()
+
 			// Iterate through the jobs and create scheduler jobs
 			for (let jobIndex = 0; jobIndex < jobsToCreate.length; jobIndex++) {
 				// Append the session ID to the job ID
+
 				jobsToCreate[jobIndex].jobId = jobsToCreate[jobIndex].jobId + data.id
+
+				const reqBody = {
+					job_id: jobsToCreate[jobIndex].jobId,
+					email_template_code: jobsToCreate[jobIndex].emailTemplate,
+					job_creator_org_id: orgId,
+				}
 				// Create the scheduler job with the calculated delay and other parameters
 				await schedulerRequest.createSchedulerJob(
 					jobsToCreate[jobIndex].jobId,
 					jobsToCreate[jobIndex].delay,
 					jobsToCreate[jobIndex].jobName,
-					jobsToCreate[jobIndex].emailTemplate
+					reqBody,
+					reqBody.email_template_code
+						? common.notificationEndPoint
+						: common.sessionCompleteEndpoint + data.id,
+					reqBody.email_template_code ? common.POST_METHOD : common.PATCH_METHOD
 				)
 			}
 
@@ -252,7 +272,7 @@ module.exports = class SessionsHelper {
 
 			let entityTypes = await entityTypeQueries.findUserEntityTypesAndEntities({
 				status: 'ACTIVE',
-				org_id: {
+				organization_id: {
 					[Op.in]: [orgId, defaultOrgId],
 				},
 			})
@@ -260,7 +280,8 @@ module.exports = class SessionsHelper {
 			//validationData = utils.removeParentEntityTypes(JSON.parse(JSON.stringify(validationData)))
 			const validationData = removeDefaultOrgEntityTypes(entityTypes, orgId)
 
-			let res = utils.validateInput(bodyData, validationData, 'sessions')
+			let res = utils.validateInput(bodyData, validationData, await sessionQueries.getModelName())
+
 			if (!res.success) {
 				return common.failureResponse({
 					message: 'SESSION_CREATION_FAILED',
@@ -329,7 +350,8 @@ module.exports = class SessionsHelper {
 				message = 'SESSION_UPDATED_SUCCESSFULLY'
 
 				// If new start date is passed update session notification jobs
-				if (bodyData.start_date && bodyData.start_date !== sessionDetail.start_date) {
+
+				if (bodyData.start_date && bodyData.start_date !== Number(sessionDetail.start_date)) {
 					const updateDelayData = sessionRelatedJobIds.map((jobId) => ({ id: jobId }))
 
 					// Calculate new delays for notification jobs
@@ -353,6 +375,47 @@ module.exports = class SessionsHelper {
 					for (let jobIndex = 0; jobIndex < updateDelayData.length; jobIndex++) {
 						await schedulerRequest.updateDelayOfScheduledJob(updateDelayData[jobIndex])
 					}
+				}
+				if (
+					bodyData.end_date &&
+					bodyData.end_date !== Number(sessionDetail.end_date) &&
+					bodyData?.meeting_info?.value !== common.BBB_VALUE
+				) {
+					const jobId = common.jobPrefixToMarkSessionAsCompleted + sessionDetail.id
+					await schedulerRequest.updateDelayOfScheduledJob({
+						id: jobId,
+						delay: await utils.getTimeDifferenceInMilliseconds(bodyData.end_date, 0, 'minutes'),
+					})
+				}
+				if (
+					bodyData.meeting_info &&
+					bodyData?.meeting_info?.value !== common.BBB_VALUE &&
+					sessionDetail.meeting_info?.value !== bodyData?.meeting_info?.value
+				) {
+					let jobsToCreate = _.cloneDeep(common.jobsToCreate)
+					jobsToCreate[3].delay = await utils.getTimeDifferenceInMilliseconds(
+						sessionDetail.end_date,
+						0,
+						'minutes'
+					)
+					// Iterate through the jobs and create scheduler jobs
+					// Append the session ID to the job ID
+					jobsToCreate[3].jobId = jobsToCreate[3].jobId + sessionDetail.id
+
+					const reqBody = {
+						job_id: jobsToCreate[3].jobId,
+						email_template_code: jobsToCreate[3].emailTemplate,
+						job_creator_org_id: orgId,
+					}
+					// Create the scheduler job with the calculated delay and other parameters
+					await schedulerRequest.createSchedulerJob(
+						jobsToCreate[3].jobId,
+						jobsToCreate[3].delay,
+						jobsToCreate[3].jobName,
+						reqBody,
+						common.sessionCompleteEndpoint + sessionDetail.id,
+						common.PATCH_METHOD
+					)
 				}
 			}
 
@@ -381,12 +444,14 @@ module.exports = class SessionsHelper {
 				/* Find email template according to request type */
 				let templateData
 				if (method == common.DELETE_METHOD) {
-					templateData = await notificationTemplateData.findOneEmailTemplate(
-						process.env.MENTOR_SESSION_DELETE_EMAIL_TEMPLATE
+					templateData = await notificationQueries.findOneEmailTemplate(
+						process.env.MENTOR_SESSION_DELETE_EMAIL_TEMPLATE,
+						orgId
 					)
 				} else if (isSessionReschedule) {
-					templateData = await notificationTemplateData.findOneEmailTemplate(
-						process.env.MENTOR_SESSION_RESCHEDULE_EMAIL_TEMPLATE
+					templateData = await notificationQueries.findOneEmailTemplate(
+						process.env.MENTOR_SESSION_RESCHEDULE_EMAIL_TEMPLATE,
+						orgId
 					)
 					console.log('Session rescheduled email code:', process.env.MENTOR_SESSION_RESCHEDULE_EMAIL_TEMPLATE)
 
@@ -530,14 +595,10 @@ module.exports = class SessionsHelper {
 
 			// check for accessibility
 			if (userId !== '' && isAMentor !== '') {
-				let sessionPolicyCheck = await menteesService.filterSessionsBasedOnSaasPolicy(
-					[sessionDetails],
-					userId,
-					isAMentor
-				)
+				let isAccessible = await this.checkIfSessionIsAccessible([sessionDetails], userId, isAMentor)
 
 				// Throw access error
-				if (sessionPolicyCheck.length === 0) {
+				if (!isAccessible) {
 					return common.failureResponse({
 						statusCode: httpStatusCode.not_found,
 						message: 'SESSION_RESTRICTED',
@@ -558,8 +619,9 @@ module.exports = class SessionsHelper {
 				sessionDetails.image = await Promise.all(sessionDetails.image)
 			}
 
-			const mentorName = await userRequests.details('', sessionDetails.mentor_id)
-			sessionDetails.mentor_name = mentorName.data.result.name
+			const mentorDetails = await userRequests.details('', sessionDetails.mentor_id)
+			sessionDetails.mentor_name = mentorDetails.data.result.name
+			sessionDetails.organization = mentorDetails.data.result.organization
 
 			const { getDefaultOrgId } = require('@helpers/getDefaultOrgId')
 
@@ -573,13 +635,13 @@ module.exports = class SessionsHelper {
 
 			let entityTypes = await entityTypeQueries.findUserEntityTypesAndEntities({
 				status: 'ACTIVE',
-				org_id: {
-					[Op.in]: [sessionDetails.mentor_org_id, defaultOrgId],
+				organization_id: {
+					[Op.in]: [sessionDetails.mentor_organization_id, defaultOrgId],
 				},
 			})
 
 			//validationData = utils.removeParentEntityTypes(JSON.parse(JSON.stringify(validationData)))
-			const validationData = removeDefaultOrgEntityTypes(entityTypes, sessionDetails.mentor_org_id)
+			const validationData = removeDefaultOrgEntityTypes(entityTypes, sessionDetails.mentor_organization_id)
 
 			const processDbResponse = utils.processDbResponse(sessionDetails, validationData)
 
@@ -595,93 +657,118 @@ module.exports = class SessionsHelper {
 	}
 
 	/**
-	 * Session list.
+	 * @description 							- check if session is accessible based on user's saas policy.
+	 * @method
+	 * @name checkIfSessionIsAccessible
+	 * @param {Number} userId 					- User id.
+	 * @param {Array}							- Session data
+	 * @param {Boolean} isAMentor 				- user mentor or not.
+	 * @returns {JSON} 							- List of filtered sessions
+	 */
+	static async checkIfSessionIsAccessible(sessions, userId, isAMentor) {
+		try {
+			const userPolicyDetails = isAMentor
+				? await mentorExtensionQueries.getMentorExtension(userId, [
+						'external_session_visibility',
+						'organization_id',
+				  ])
+				: await menteeExtensionQueries.getMenteeExtension(userId, [
+						'external_session_visibility',
+						'organization_id',
+				  ])
+
+			// Throw error if mentor/mentee extension not found
+			if (!userPolicyDetails || Object.keys(userPolicyDetails).length === 0) {
+				return common.failureResponse({
+					statusCode: httpStatusCode.not_found,
+					message: isAMentor ? 'MENTORS_NOT_FOUND' : 'MENTEE_EXTENSION_NOT_FOUND',
+					responseCode: 'CLIENT_ERROR',
+				})
+			}
+
+			// check the accessibility conditions
+			let isAccessible = false
+			if (userPolicyDetails.external_session_visibility && userPolicyDetails.organization_id) {
+				const { external_session_visibility, organization_id } = userPolicyDetails
+				const session = sessions[0]
+				const isEnrolled = session.is_enrolled || false
+
+				switch (external_session_visibility) {
+					/**
+					 * If {userPolicyDetails.external_session_visibility === CURRENT} user will be able to sessions-
+					 *  -created by his/her organization mentors.
+					 * So will check if mentor_organization_id equals user's  organization_id
+					 */
+					case common.CURRENT:
+						isAccessible = isEnrolled || session.mentor_organization_id === organization_id
+						break
+					/**
+					 * user external_session_visibility is ASSOCIATED
+					 * user can see sessions where session's visible_to_organizations contain user's organization_id and -
+					 *  - session's visibility not CURRENT (In case of same organization session has to be
+					 * fetched for that we added OR condition {"mentor_organization_id" = ${userPolicyDetails.organization_id}})
+					 */
+					case common.ASSOCIATED:
+						isAccessible =
+							isEnrolled ||
+							(session.visible_to_organizations.includes(organization_id) &&
+								session.visibility != common.CURRENT) ||
+							session.mentor_organization_id === organization_id
+						break
+					/**
+					 * user's external_session_visibility === ALL (ASSOCIATED sessions + sessions whose visibility is ALL)
+					 */
+					case common.ALL:
+						isAccessible =
+							isEnrolled ||
+							(session.visible_to_organizations.includes(organization_id) &&
+								session.visibility != common.CURRENT) ||
+							session.visibility === common.ALL ||
+							session.mentor_organization_id === organization_id
+						break
+					default:
+						break
+				}
+			}
+			return isAccessible
+		} catch (err) {
+			return err
+		}
+	}
+
+	/**
+	 * Sessions list
 	 * @method
 	 * @name list
-	 * @param {String} loggedInUserId - LoggedIn user id.
-	 * @param {Number} page - page no.
-	 * @param {Number} limit - page size.
-	 * @param {String} search - search text.
-	 * @returns {JSON} - List of sessions
+	 * @param {Object} req -request data.
+	 * @param {String} req.decodedToken.id - User Id.
+	 * @param {String} req.pageNo - Page No.
+	 * @param {String} req.pageSize - Page size limit.
+	 * @param {String} req.searchText - Search text.
+	 * @param {Boolean} isAMentor - Is a mentor.
+	 * @returns {JSON} - Session List.
 	 */
 
-	static async list(loggedInUserId, page, limit, search, status) {
+	static async list(loggedInUserId, page, limit, search, queryParams, isAMentor) {
 		try {
-			// update sessions which having status as published/live and  exceeds the current date and time
-			const currentDate = Math.floor(moment.utc().valueOf() / 1000)
-			const filterQuery = {
-				[Op.or]: [
-					{
-						status: common.PUBLISHED_STATUS,
-						end_date: {
-							[Op.lt]: currentDate,
-						},
-					},
-					{
-						status: common.LIVE_STATUS,
-						'meeting_info.value': {
-							[Op.ne]: common.BBB_VALUE,
-						},
-						end_date: {
-							[Op.lt]: currentDate,
-						},
-					},
-				],
+			let allSessions = await menteeService.getAllSessions(
+				page,
+				limit,
+				search,
+				loggedInUserId,
+				queryParams,
+				isAMentor
+			)
+
+			const result = {
+				data: allSessions.rows,
+				count: allSessions.count,
 			}
 
-			await sessionQueries.updateSession(filterQuery, {
-				status: common.COMPLETED_STATUS,
-			})
-
-			let arrayOfStatus = []
-			if (status && status != '') {
-				arrayOfStatus = status.split(',')
-			}
-
-			let filters = {
-				mentor_id: loggedInUserId,
-			}
-			if (arrayOfStatus.length > 0) {
-				// if (arrayOfStatus.includes(common.COMPLETED_STATUS) && arrayOfStatus.length == 1) {
-				// 	filters['endDateUtc'] = {
-				// 		$lt: moment().utc().format(),
-				// 	}
-				// } else
-				if (arrayOfStatus.includes(common.PUBLISHED_STATUS) && arrayOfStatus.includes(common.LIVE_STATUS)) {
-					filters['end_date'] = {
-						[Op.gte]: currentDate,
-					}
-				}
-
-				filters['status'] = arrayOfStatus
-			}
-
-			const sessionDetails = await sessionQueries.findAllSessions(page, limit, search, filters)
-
-			/* if (sessionDetails.count == 0 || sessionDetails.rows.length == 0) {
-				return common.failureResponse({
-					message: 'SESSION_NOT_FOUND',
-					statusCode: httpStatusCode.bad_request,
-					responseCode: 'CLIENT_ERROR',
-					result: [],
-				})
-			} */
-
-			sessionDetails.rows = await sessionMentor.sessionMentorDetails(sessionDetails.rows)
-
-			//remove meeting_info details except value and platform
-			sessionDetails.rows.forEach((item) => {
-				if (item.meeting_info) {
-					item.meeting_info = {
-						value: item.meeting_info.value,
-						platform: item.meeting_info.platform,
-					}
-				}
-			})
 			return common.successResponse({
 				statusCode: httpStatusCode.ok,
 				message: 'SESSION_FETCHED_SUCCESSFULLY',
-				result: { count: sessionDetails.count, data: sessionDetails.rows },
+				result,
 			})
 		} catch (error) {
 			console.log
@@ -750,8 +837,9 @@ module.exports = class SessionsHelper {
 			await sessionAttendeesQueries.create(attendee)
 			await sessionEnrollmentQueries.create(_.omit(attendee, 'time_zone'))
 
-			const templateData = await notificationTemplateData.findOneEmailTemplate(
-				process.env.MENTEE_SESSION_ENROLLMENT_EMAIL_TEMPLATE
+			const templateData = await notificationQueries.findOneEmailTemplate(
+				process.env.MENTEE_SESSION_ENROLLMENT_EMAIL_TEMPLATE,
+				session.mentor_organization_id
 			)
 
 			if (templateData) {
@@ -825,8 +913,9 @@ module.exports = class SessionsHelper {
 
 			await sessionEnrollmentQueries.unEnrollFromSession(sessionId, userId)
 
-			const templateData = await notificationTemplateData.findOneEmailTemplate(
-				process.env.MENTEE_SESSION_CANCELLATION_EMAIL_TEMPLATE
+			const templateData = await notificationQueries.findOneEmailTemplate(
+				process.env.MENTEE_SESSION_CANCELLATION_EMAIL_TEMPLATE,
+				session.mentor_organization_id
 			)
 
 			if (templateData) {
@@ -1155,27 +1244,30 @@ module.exports = class SessionsHelper {
 
 	static async completed(sessionId) {
 		try {
-			const recordingInfo = await bigBlueButtonRequests.getRecordings(sessionId)
-
-			await sessionQueries.updateOne(
-				{
-					id: sessionId,
-				},
+			const { updatedRows } = await sessionQueries.updateOne(
+				{ id: sessionId },
 				{
 					status: common.COMPLETED_STATUS,
 					completed_at: utils.utcFormat(),
-				}
+				},
+				{ returning: true, raw: true }
 			)
 
-			if (recordingInfo && recordingInfo.data && recordingInfo.data.response) {
-				const recordings = recordingInfo.data.response.recordings
+			const { value } = updatedRows[0].meeting_info
 
-				//update recording info in postsessiontable
-				await postSessionQueries.create({
-					session_id: sessionId,
-					recording_url: recordings.recording.playback.format.url,
-					recording: recordings,
-				})
+			if (value === common.BBB_VALUE) {
+				const recordingInfo = await bigBlueButtonRequests.getRecordings(sessionId)
+
+				if (recordingInfo?.data?.response) {
+					const { recordings } = recordingInfo.data.response
+
+					// Update recording info in postsessiontable
+					await postSessionQueries.create({
+						session_id: sessionId,
+						recording_url: recordings.recording.playback.format.url,
+						recording: recordings,
+					})
+				}
 			}
 
 			return common.successResponse({
