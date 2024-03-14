@@ -17,6 +17,10 @@ let environmentData = require('./envVariables')()
 const { elevateLog, correlationIdMiddleware } = require('elevate-logger')
 elevateLog.config(process.env.ERROR_LOG_LEVEL, 'mentoring', process.env.DISABLE_LOG)
 const logger = elevateLog.init()
+const helmet = require('helmet')
+const rateLimit = require('express-rate-limit')
+const csrf = require('csurf')
+const cookieParser = require('cookie-parser')
 if (!environmentData.success) {
 	logger.error('Server could not start . Not all environment variable is provided', {
 		triggerNotification: true,
@@ -44,6 +48,33 @@ i18next
 
 const app = express()
 
+// Use helmet middleware to set security-related HTTP headers
+app.use(helmet())
+
+// Rate limiting configuration
+const limiter = rateLimit({
+	windowMs: process.env.RATELIMITERTIMEFRAME,
+	max: process.env.NUMBEROFHITS,
+	message: 'Too many requests from this IP, please try again later.',
+})
+
+// Use cookie parser middleware to parse cookies
+app.use(cookieParser())
+
+// Initialize csurf middleware
+const csrfProtection = csrf({ cookie: true })
+
+// Apply csrfProtection middleware to all routes
+app.use(csrfProtection)
+
+// Handle CSRF errors
+app.use((err, req, res, next) => {
+	if (err.code !== 'EBADCSRFTOKEN') return next(err)
+
+	// Handle CSRF token errors here
+	res.status(403).send('CSRF token invalid')
+})
+
 // Health check
 require('@health-checks')(app)
 
@@ -55,6 +86,9 @@ app.use(bodyParser.urlencoded({ extended: true, limit: '50MB' }))
 app.use(bodyParser.json({ limit: '50MB' }))
 
 app.use(express.static('public'))
+
+// Apply the rate limiter to all requests to the specified endpoint
+app.use(process.env.API_DOC_URL, limiter)
 
 app.get(process.env.API_DOC_URL, function (req, res) {
 	res.sendFile(path.join(__dirname, './api-doc/index.html'))
